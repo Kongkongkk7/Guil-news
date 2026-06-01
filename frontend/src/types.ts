@@ -2,14 +2,27 @@ export interface NewsItem {
   title: string;
   link: string;
   date: string;
+  thumbnail?: string;
 }
 
 export interface NewsResponse {
   success: boolean;
-  data: NewsItem[];
+  category: string;
+  categoryName: string;
+  newsList: NewsItem[];
 }
 
-export type NewsCategory = 'xxxw' | 'xsdt' | 'gyrw' | 'mtgy';
+export interface NewsDetailResponse {
+  success: boolean;
+  detail: {
+    title: string;
+    content: string;
+    url: string;
+    thumbnail?: string;
+  };
+}
+
+export type NewsCategory = 'xxxw' | 'xsdt' | 'xykx';
 
 export interface CategoryInfo {
   key: NewsCategory;
@@ -21,26 +34,20 @@ export interface CategoryInfo {
 export const CATEGORIES: CategoryInfo[] = [
   {
     key: 'xxxw',
-    label: '学校新闻',
-    icon: '🏛️',
+    label: '桂院要闻',
+    icon: '📋',
     description: '学校重要新闻和公告'
   },
   {
     key: 'xsdt',
-    label: '学生动态',
-    icon: '🎓',
-    description: '学生学习生活动态'
+    label: '学术动态',
+    icon: '📚',
+    description: '学术讲座与科研动态'
   },
   {
-    key: 'gyrw',
-    label: '校友人物',
-    icon: '👥',
-    description: '杰出校友风采展示'
-  },
-  {
-    key: 'mtgy',
-    label: '媒体校园',
-    icon: '📰',
-    description: '媒体眼中的桂林理工'
+    key: 'xykx',
+    label: '校园快讯',
+    icon: '📢',
+    description: '校园新鲜事和活动'
   }
 ];
