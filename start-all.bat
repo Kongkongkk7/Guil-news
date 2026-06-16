@@ -20,7 +20,7 @@ echo Java OK
 echo.
 
 echo [2/5] Checking Maven...
-mvn --version >nul 2>&1
+where mvn >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Maven not found!
     echo Please install Maven 3.6+
@@ -31,7 +31,7 @@ echo Maven OK
 echo.
 
 echo [3/5] Checking Node.js...
-node --version >nul 2>&1
+where node >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Node.js not found!
     echo Please install Node.js 18+
@@ -56,10 +56,11 @@ echo.
 echo [5/5] Starting servers...
 echo Starting backend...
 cd /d "%ROOT%"
-start mvn tomcat7:run
+start "Guilin-News-Backend" mvn tomcat7:run
+timeout /t 10 /nobreak >nul
 echo Starting frontend...
 cd /d "%FRONTEND%"
-start npm run dev
+start "Guilin-News-Frontend" npm run dev
 echo.
 
 echo ==========================================
