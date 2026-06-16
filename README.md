@@ -4,41 +4,48 @@
 
 ## 项目简介
 
-这是一个基于 Java Web 技术的校园新闻爬虫系统，用于实时获取桂林学院官网的新闻动态。
+基于 Java Web + React 技术栈的校园新闻爬虫系统，实时获取桂林学院官网新闻动态，采用绿色系设计风格。
 
 ## 技术栈
 
 | 模块 | 技术 |
 |------|------|
-| 后端框架 | Servlet + JSON API |
+| 后端框架 | Java Servlet + JSON API |
 | 爬虫库 | Jsoup |
-| 前端框架 | React + TypeScript + Vite |
-| UI 样式 | Tailwind CSS |
+| 前端框架 | React 18 + TypeScript + Vite |
+| UI 样式 | Tailwind CSS 3 |
 | 构建工具 | Maven (后端) + npm (前端) |
-| 服务器 | Tomcat (后端) + Vite Dev Server (前端) |
+| 服务器 | Tomcat 7 (后端) + Vite Dev Server (前端) |
 
 ## 项目结构
 
 ```
-├── src/                           # Java 后端
-│   └── main/
-│       ├── java/com/guilin/news/
-│       │   ├── model/News.java    # 数据模型
-│       │   ├── service/NewsService.java  # 爬虫服务
-│       │   └── servlet/
-│       │       ├── NewsServlet.java     # JSP 版本
-│       │       └── ApiServlet.java      # JSON API
-│       └── webapp/
-│           ├── WEB-INF/web.xml
-│           └── jsp/               # JSP 页面（备用）
-├── frontend/                      # React 前端
+Guil-news/
+├── src/main/java/com/guilin/news/
+│   ├── model/
+│   │   └── News.java              # 新闻数据模型
+│   ├── service/
+│   │   └── NewsService.java       # 爬虫核心服务（含缓存机制）
+│   └── servlet/
+│       ├── ApiServlet.java        # JSON API 接口
+│       └── NewsServlet.java       # JSP 版本接口（备用）
+├── src/main/webapp/
+│   ├── WEB-INF/web.xml           # Servlet 配置
+│   └── jsp/                       # JSP 页面（备用）
+├── frontend/
 │   ├── src/
-│   │   ├── App.tsx               # 主组件
-│   │   └── types.ts              # 类型定义
+│   │   ├── App.tsx                # 首页组件（列表+轮播+搜索）
+│   │   ├── NewsDetailPage.tsx     # 新闻详情页
+│   │   ├── types.ts               # TypeScript 类型定义
+│   │   ├── main.tsx               # 入口文件
+│   │   └── index.css              # 全局样式
+│   ├── index.html
 │   ├── package.json
-│   └── vite.config.ts
+│   ├── vite.config.ts             # Vite 配置（含代理）
+│   ├── tailwind.config.js         # Tailwind 配置
+│   └── postcss.config.js          # PostCSS 配置
 ├── pom.xml                        # Maven 配置
-└── README.md
+└── start-all.ps1                  # Windows 一键启动脚本
 ```
 
 ## 环境要求
@@ -46,7 +53,6 @@
 - JDK 17+
 - Maven 3.6+
 - Node.js 18+
-- 网络连接（需要访问桂林学院官网）
 
 ## 快速开始
 
@@ -82,23 +88,50 @@ npm run dev
 
 ## API 接口
 
-| 接口 | 说明 |
-|------|------|
-| `GET /api/news/categories` | 获取所有分类 |
-| `GET /api/news/xxxw` | 校内新闻 |
-| `GET /api/news/xsdt` | 学术动态 |
-| `GET /api/news/gyrw` | 光荣入伍 |
-| `GET /api/news/mtgy` | 媒体关注 |
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/news?type={category}` | GET | 获取新闻列表 |
+| `/api/news/detail?url={url}` | GET | 获取新闻详情 |
+| `/api/news/thumbnails` | POST | 批量获取缩略图 |
+| `/api/news/categories` | GET | 获取所有分类 |
 
-## 功能特性
+## 新闻分类
 
-- ✅ 实时爬取桂林学院官网新闻
+| 分类标识 | 名称 | 说明 |
+|----------|------|------|
+| `xxxw` | 桂院要闻 | 学校重要新闻和公告 |
+| `xsdt` | 学术动态 | 学术讲座与科研动态 |
+| `xykx` | 校园快讯 | 校园新鲜事和活动 |
+
+## 核心功能
+
+### 后端功能 (`NewsService.java`)
+- ✅ Jsoup 解析网页内容
+- ✅ 5分钟内存缓存机制（ReentrantReadWriteLock）
+- ✅ 并发安全的缓存读写
+- ✅ 异步获取新闻缩略图（ExecutorService）
+- ✅ 日期自动提取（正则匹配）
+- ✅ 新闻链接去重
+- ✅ 多选择器兼容解析
+
+### 前端功能 (`App.tsx`)
+- ✅ 新闻列表展示（卡片式布局）
+- ✅ Hero 轮播（自动播放+手动切换）
+- ✅ 新闻搜索（实时过滤）
+- ✅ 分类导航（带视觉反馈）
+- ✅ 加载状态骨架屏
+- ✅ 错误处理与重试
+- ✅ 响应式设计（移动端适配）
 - ✅ 桂林学院绿色系设计风格
-- ✅ 响应式布局，支持移动端
-- ✅ 新闻搜索功能
-- ✅ 新闻详情弹窗
+
+### 详情页功能 (`NewsDetailPage.tsx`)
+- ✅ 富文本内容渲染
+- ✅ 阅读进度条
+- ✅ 字号调节（A-/A+）
+- ✅ 打印功能
 - ✅ 上一篇/下一篇导航
-- ✅ 加载状态和错误处理
+- ✅ 返回顶部按钮
+- ✅ 阅读时间预估
 
 ## 开发说明
 
