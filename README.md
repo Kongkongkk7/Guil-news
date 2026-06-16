@@ -43,7 +43,8 @@ Guil-news/
 │   ├── tailwind.config.js         # Tailwind 配置
 │   └── postcss.config.js          # PostCSS 配置
 ├── pom.xml                        # Maven 配置
-└── start-all.ps1                  # Windows 一键启动脚本
+├── start-all.ps1                  # Windows PowerShell 一键启动脚本
+└── start-all.bat                  # Windows 批处理一键启动脚本
 ```
 
 ## 环境要求
@@ -54,23 +55,35 @@ Guil-news/
 
 ## 快速开始
 
-### 1. 克隆仓库
+### 方法一：一键启动（推荐）
+
+直接双击运行项目根目录下的启动脚本：
+
+- **Windows PowerShell**: `start-all.ps1`
+- **Windows 批处理**: `start-all.bat`
+
+脚本会自动完成以下操作：
+1. 检查 Java、Maven、Node.js 环境
+2. 释放占用的端口（8080、5173）
+3. 安装前端依赖（如果未安装）
+4. 启动 Java 后端和 React 前端
+
+### 方法二：手动启动
 
 ```bash
 git clone https://github.com/Kongkongkk7/Guil-news.git
 cd Guil-news
 ```
 
-### 2. 启动 Java 后端
+**启动 Java 后端：**
 
 ```bash
-mvn clean package
 mvn tomcat7:run
 ```
 
 后端将在 http://localhost:8080/guilin-news/ 启动
 
-### 3. 启动 React 前端
+**启动 React 前端：**
 
 ```bash
 cd frontend

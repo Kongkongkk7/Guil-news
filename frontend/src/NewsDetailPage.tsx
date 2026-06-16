@@ -309,57 +309,55 @@ function NewsDetailPage() {
 
         {/* 上下篇导航 */}
         {!loading && (prevNews || nextNews) && (
-          <div className="mt-6 bg-white rounded-xl shadow-sm overflow-hidden">
-            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100">
-              {prevNews ? (
-                <button onClick={() => openNews(prevNews)}
-                  className="group p-5 text-left hover:bg-gray-50 transition-colors flex items-center gap-3">
-                  <svg className="w-5 h-5 text-gray-300 group-hover:text-[#1E6B56] transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  <div className="min-w-0">
-                    <span className="text-xs text-gray-400 block mb-1">上一篇</span>
-                    <span className="text-sm text-gray-700 group-hover:text-[#1E6B56] transition-colors line-clamp-1 block">
-                      {prevNews.title}
-                    </span>
-                  </div>
-                </button>
-              ) : (
-                <div className="p-5 flex items-center gap-3">
-                  <svg className="w-5 h-5 text-gray-200 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  <div>
-                    <span className="text-xs text-gray-300 block mb-1">上一篇</span>
-                    <span className="text-sm text-gray-300">已经是第一篇了</span>
-                  </div>
+          <div className="mt-4 flex gap-4">
+            {prevNews ? (
+              <button onClick={() => openNews(prevNews)}
+                className="flex-1 py-3 px-4 bg-white rounded-lg border border-gray-100 shadow-sm hover:border-[#1E6B56]/30 hover:shadow transition-all flex items-center gap-2 text-left">
+                <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                <div className="min-w-0">
+                  <span className="text-xs text-gray-400 block">上一篇</span>
+                  <span className="text-sm text-gray-700 group-hover:text-[#1E6B56] line-clamp-1 block truncate" style={{ maxWidth: '200px' }}>
+                    {prevNews.title}
+                  </span>
                 </div>
-              )}
-              {nextNews ? (
-                <button onClick={() => openNews(nextNews)}
-                  className="group p-5 text-right hover:bg-gray-50 transition-colors flex items-center gap-3 justify-end">
-                  <div className="min-w-0">
-                    <span className="text-xs text-gray-400 block mb-1">下一篇</span>
-                    <span className="text-sm text-gray-700 group-hover:text-[#1E6B56] transition-colors line-clamp-1 block">
-                      {nextNews.title}
-                    </span>
-                  </div>
-                  <svg className="w-5 h-5 text-gray-300 group-hover:text-[#1E6B56] transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-              ) : (
-                <div className="p-5 flex items-center gap-3 justify-end">
-                  <div className="text-right">
-                    <span className="text-xs text-gray-300 block mb-1">下一篇</span>
-                    <span className="text-sm text-gray-300">已经是最后一篇了</span>
-                  </div>
-                  <svg className="w-5 h-5 text-gray-200 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+              </button>
+            ) : (
+              <div className="flex-1 py-3 px-4 bg-gray-50 rounded-lg border border-gray-100 flex items-center gap-2 text-left">
+                <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                <div>
+                  <span className="text-xs text-gray-400 block">上一篇</span>
+                  <span className="text-sm text-gray-300">已是第一篇</span>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+            {nextNews ? (
+              <button onClick={() => openNews(nextNews)}
+                className="flex-1 py-3 px-4 bg-white rounded-lg border border-gray-100 shadow-sm hover:border-[#1E6B56]/30 hover:shadow transition-all flex items-center gap-2 justify-end">
+                <div className="min-w-0 text-right">
+                  <span className="text-xs text-gray-400 block">下一篇</span>
+                  <span className="text-sm text-gray-700 group-hover:text-[#1E6B56] line-clamp-1 block truncate" style={{ maxWidth: '200px' }}>
+                    {nextNews.title}
+                  </span>
+                </div>
+                <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            ) : (
+              <div className="flex-1 py-3 px-4 bg-gray-50 rounded-lg border border-gray-100 flex items-center gap-2 justify-end">
+                <div className="text-right">
+                  <span className="text-xs text-gray-400 block">下一篇</span>
+                  <span className="text-sm text-gray-300">已是最后一篇</span>
+                </div>
+                <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            )}
           </div>
         )}
 
