@@ -27,11 +27,9 @@ Guil-news/
 │   ├── service/
 │   │   └── NewsService.java       # 爬虫核心服务（含缓存机制）
 │   └── servlet/
-│       ├── ApiServlet.java        # JSON API 接口
-│       └── NewsServlet.java       # JSP 版本接口（备用）
+│       └── ApiServlet.java        # JSON API 接口
 ├── src/main/webapp/
-│   ├── WEB-INF/web.xml           # Servlet 配置
-│   └── jsp/                       # JSP 页面（备用）
+│   └── WEB-INF/web.xml           # Servlet 配置
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx                # 首页组件（列表+轮播+搜索）
