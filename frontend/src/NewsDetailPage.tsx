@@ -7,13 +7,21 @@ interface NewsDetail {
   thumbnail?: string;
 }
 
+interface NewsItem {
+  title: string;
+  link: string;
+  date: string;
+  thumbnail?: string;
+}
+
 const LOGO_URL = '/logo.png';
 const HERO_BG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600"><defs><linearGradient id="h1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#0f172a;stop-opacity:1"/><stop offset="30%" style="stop-color:#1E6B56;stop-opacity:1"/><stop offset="70%" style="stop-color:#0D9488;stop-opacity:1"/><stop offset="100%" style="stop-color:#2DD4BF;stop-opacity:1"/></linearGradient></defs><rect fill="url(#h1)" width="1200" height="600"/><circle cx="900" cy="150" r="200" fill="rgba(255,255,255,0.05)"/><circle cx="200" cy="500" r="150" fill="rgba(255,255,255,0.04)"/><path d="M0 500 Q300 400 600 450 T1200 420 L1200 600 L0 600Z" fill="rgba(255,255,255,0.08)"/></svg>')}`;
 
 const CATEGORY_LABELS: Record<string, string> = {
   xxxw: '桂院要闻',
   xsdt: '学术动态',
-  xykx: '校园快讯'
+  gyrw: '校园要闻',
+  mtgy: '媒体关注'
 };
 
 function NewsDetailPage() {
@@ -23,6 +31,8 @@ function NewsDetailPage() {
   const [fontSize, setFontSize] = useState(16);
   const [progress, setProgress] = useState(0);
   const [showBackTop, setShowBackTop] = useState(false);
+  const [newsList, setNewsList] = useState<NewsItem[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(-1);
   const printRef = useRef<HTMLDivElement>(null);
   const currentYear = new Date().getFullYear();
 
@@ -52,8 +62,8 @@ function NewsDetailPage() {
       try {
         const response = await fetch(`/api/news/detail?url=${encodeURIComponent(url)}`);
         const data = await response.json();
-        if (data.success && data.detail) {
-          setDetail(data.detail);
+        if (data.success && data.data) {
+          setDetail(data.data);
         } else {
           setError('获取详情失败');
         }
@@ -64,6 +74,19 @@ function NewsDetailPage() {
       }
     };
     fetchDetail();
+
+    // 获取新闻列表用于上下篇导航
+    fetch(`/api/news?type=${category}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.data) {
+          const list: NewsItem[] = data.data;
+          setNewsList(list);
+          const idx = list.findIndex(n => n.link === url);
+          setCurrentIndex(idx);
+        }
+      })
+      .catch(() => {});
 
     const onScroll = () => {
       const sc = window.scrollY;
@@ -83,6 +106,13 @@ function NewsDetailPage() {
   const finalThumb = detail?.thumbnail || thumb || HERO_BG;
   const plainTextContent = detail?.content?.replace(/<[^>]*>/g, '') || '';
   const readingTime = Math.max(1, Math.ceil(plainTextContent.length / 400));
+
+  const prevNews = currentIndex > 0 ? newsList[currentIndex - 1] : null;
+  const nextNews = currentIndex >= 0 && currentIndex < newsList.length - 1 ? newsList[currentIndex + 1] : null;
+
+  const openNews = (item: NewsItem) => {
+    window.location.href = `/news-detail?url=${encodeURIComponent(item.link)}&title=${encodeURIComponent(item.title)}&date=${encodeURIComponent(item.date || '')}&category=${category}&thumb=${encodeURIComponent(item.thumbnail || '')}`;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -169,7 +199,7 @@ function NewsDetailPage() {
             </a>
             <div className="hidden sm:flex items-center gap-2 ml-4 border-l border-gray-200 pl-4">
               <span className="text-xs text-gray-400">快速访问</span>
-              {['xxxw', 'xsdt', 'xykx'].map(cat => (
+              {['xxxw', 'xsdt', 'gyrw', 'mtgy'].map(cat => (
                 <a key={cat} href={`/?category=${cat}`}
                   className={`px-2.5 py-1 rounded text-xs ${category === cat ? 'bg-[#1E6B56] text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
                   {CATEGORY_LABELS[cat]}
@@ -276,6 +306,62 @@ function NewsDetailPage() {
             </div>
           )}
         </article>
+
+        {/* 上下篇导航 */}
+        {!loading && (prevNews || nextNews) && (
+          <div className="mt-6 bg-white rounded-xl shadow-sm overflow-hidden">
+            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+              {prevNews ? (
+                <button onClick={() => openNews(prevNews)}
+                  className="group p-5 text-left hover:bg-gray-50 transition-colors flex items-center gap-3">
+                  <svg className="w-5 h-5 text-gray-300 group-hover:text-[#1E6B56] transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <div className="min-w-0">
+                    <span className="text-xs text-gray-400 block mb-1">上一篇</span>
+                    <span className="text-sm text-gray-700 group-hover:text-[#1E6B56] transition-colors line-clamp-1 block">
+                      {prevNews.title}
+                    </span>
+                  </div>
+                </button>
+              ) : (
+                <div className="p-5 flex items-center gap-3">
+                  <svg className="w-5 h-5 text-gray-200 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <div>
+                    <span className="text-xs text-gray-300 block mb-1">上一篇</span>
+                    <span className="text-sm text-gray-300">已经是第一篇了</span>
+                  </div>
+                </div>
+              )}
+              {nextNews ? (
+                <button onClick={() => openNews(nextNews)}
+                  className="group p-5 text-right hover:bg-gray-50 transition-colors flex items-center gap-3 justify-end">
+                  <div className="min-w-0">
+                    <span className="text-xs text-gray-400 block mb-1">下一篇</span>
+                    <span className="text-sm text-gray-700 group-hover:text-[#1E6B56] transition-colors line-clamp-1 block">
+                      {nextNews.title}
+                    </span>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-300 group-hover:text-[#1E6B56] transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              ) : (
+                <div className="p-5 flex items-center gap-3 justify-end">
+                  <div className="text-right">
+                    <span className="text-xs text-gray-300 block mb-1">下一篇</span>
+                    <span className="text-sm text-gray-300">已经是最后一篇了</span>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-200 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* 来源于 */}
         <div className="mt-6 text-center">

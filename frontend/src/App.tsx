@@ -11,7 +11,7 @@ function App() {
   const [activeCategory, setActiveCategory] = useState<NewsCategory>(() => {
     const params = new URLSearchParams(window.location.search);
     const cat = params.get('category');
-    if (cat && ['xxxw', 'xsdt', 'xykx'].includes(cat)) {
+    if (cat && ['xxxw', 'xsdt', 'gyrw', 'mtgy'].includes(cat)) {
       return cat as NewsCategory;
     }
     return 'xxxw';
@@ -52,10 +52,31 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/news/${category}`);
+      const response = await fetch(`/api/news?type=${category}`);
       const data = await response.json();
       if (data.success) {
-        setNews(data.newsList);
+        const newsList: NewsItem[] = data.data;
+        setNews(newsList);
+
+        // 异步获取缩略图
+        const urls = newsList.map(n => n.link).filter(Boolean);
+        if (urls.length > 0) {
+          fetch('/api/news/thumbnails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls })
+          })
+            .then(r => r.json())
+            .then(td => {
+              if (td.success && td.data) {
+                setNews(prev => prev.map(item => ({
+                  ...item,
+                  thumbnail: td.data[item.link] || item.thumbnail
+                })));
+              }
+            })
+            .catch(() => { /* 缩略图加载失败不影响主功能 */ });
+        }
       } else {
         setError('获取新闻失败，请稍后重试');
       }
@@ -98,7 +119,8 @@ function App() {
     const colors: Record<NewsCategory, string> = {
       xxxw: 'from-[#1E6B56] to-[#0D9488]',
       xsdt: 'from-[#7C3AED] to-[#A78BFA]',
-      xykx: 'from-[#2563EB] to-[#60A5FA]'
+      gyrw: 'from-[#2563EB] to-[#60A5FA]',
+      mtgy: 'from-[#EA580C] to-[#FB923C]'
     };
     return colors[key] || colors.xxxw;
   };

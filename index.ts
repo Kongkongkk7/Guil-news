@@ -1,4 +1,4 @@
-import { serve } from "bun";
+import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import * as cheerio from "cheerio";
@@ -96,6 +96,24 @@ const fetchNewsDetail = async (url: string) => {
             .trim();
 
         const baseUrl = 'https://www.glc.edu.cn';
+
+        // 提取第一张图片作为缩略图
+        let thumbnail = '';
+        const firstImg = contentElement.find('img').first();
+        if (firstImg.length > 0) {
+            let imgSrc = firstImg.attr('src') || '';
+            if (imgSrc.startsWith('../../')) {
+                imgSrc = imgSrc.replace('../../', `${baseUrl}/`);
+            } else if (imgSrc.startsWith('../')) {
+                imgSrc = imgSrc.replace('../', `${baseUrl}/`);
+            } else if (imgSrc.startsWith('/')) {
+                imgSrc = `${baseUrl}${imgSrc}`;
+            } else if (!imgSrc.startsWith('http')) {
+                imgSrc = `${baseUrl}/${imgSrc}`;
+            }
+            thumbnail = imgSrc;
+        }
+
         const processedContent = cleanContent
             .replace(/src=["']\.\.\/\.\.\//g, `src="${baseUrl}/`)
             .replace(/src=["']\.\.\//g, `src="${baseUrl}/`)
@@ -105,7 +123,8 @@ const fetchNewsDetail = async (url: string) => {
         return {
             title,
             content: processedContent.substring(0, 10000),
-            url
+            url,
+            thumbnail
         };
     } catch (e) {
         console.error(e);
@@ -135,25 +154,36 @@ app.get("/api/news/detail", async (c) => {
     }
 });
 
-const startServer = async () => {
-    let port = parseInt(process.env.PORT || "4001");
-    const maxPort = port + 100;
+// 批量获取缩略图
+app.post("/api/news/thumbnails", async (c) => {
+    const body = await c.req.json<{ urls: string[] }>();
+    const urls = body.urls || [];
+    const results: Record<string, string> = {};
 
-    while (port <= maxPort) {
+    await Promise.all(urls.map(async (url) => {
         try {
-            const server = await serve({
-                port,
-                fetch: app.fetch,
-            });
-            console.log(`🚀 后端服务启动成功: http://localhost:${server.port}`);
-            break;
-        } catch (e) {
-            if (port >= maxPort) {
-                console.error("❌ 无法找到可用端口");
-                process.exit(1);
+            const detail = await fetchNewsDetail(url);
+            if (detail?.thumbnail) {
+                results[url] = detail.thumbnail;
             }
-            port++;
-        }
+        } catch { /* skip */ }
+    }));
+
+    return c.json({ success: true, data: results });
+});
+
+const startServer = async () => {
+    const port = parseInt(process.env.PORT || "4001");
+
+    try {
+        serve({
+            port,
+            fetch: app.fetch,
+        });
+        console.log(`🚀 后端服务启动成功：http://localhost:${port}`);
+    } catch (e) {
+        console.error("❌ 启动失败:", e);
+        process.exit(1);
     }
 };
 
