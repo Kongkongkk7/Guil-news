@@ -1,73 +1,29 @@
 @echo off
+chcp 65001 >nul 2>&1
 cls
+
 echo ==========================================
 echo     Guilin University News Center
+echo     One-Click Startup Script
 echo ==========================================
 echo.
 
-set ROOT=%~dp0
-set FRONTEND=%ROOT%frontend
-
-echo [1/5] Checking Java...
-java -version >nul 2>&1
+:: Check if PowerShell is available
+where powershell >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Java not found!
-    echo Please install JDK 17+
+    echo ERROR: PowerShell not found!
+    echo Please install Windows PowerShell 5.1+
     pause
     exit /b 1
 )
-echo Java OK
-echo.
 
-echo [2/5] Checking Maven...
-where mvn >nul 2>&1
+:: Run the PowerShell script with execution policy bypass
+echo Launching PowerShell script...
+echo.
+powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0start-all.ps1"
+
 if errorlevel 1 (
-    echo ERROR: Maven not found!
-    echo Please install Maven 3.6+
+    echo.
+    echo Startup failed. Please check the error messages above.
     pause
-    exit /b 1
 )
-echo Maven OK
-echo.
-
-echo [3/5] Checking Node.js...
-where node >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Node.js not found!
-    echo Please install Node.js 18+
-    pause
-    exit /b 1
-)
-echo Node.js OK
-echo.
-
-echo [4/5] Installing frontend dependencies...
-if not exist "%FRONTEND%\node_modules" (
-    echo Installing...
-    cd /d "%FRONTEND%"
-    npm install --silent
-    cd /d "%ROOT%"
-    echo Done
-) else (
-    echo Already installed
-)
-echo.
-
-echo [5/5] Starting servers...
-echo Starting backend...
-cd /d "%ROOT%"
-start "Guilin-News-Backend" mvn tomcat7:run
-timeout /t 10 /nobreak >nul
-echo Starting frontend...
-cd /d "%FRONTEND%"
-start "Guilin-News-Frontend" npm run dev
-echo.
-
-echo ==========================================
-echo All services started!
-echo ==========================================
-echo.
-echo Backend: http://localhost:8080/guilin-news
-echo Frontend: http://localhost:5173
-echo.
-pause
