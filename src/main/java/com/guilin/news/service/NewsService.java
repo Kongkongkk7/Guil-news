@@ -41,6 +41,7 @@ public class NewsService {
         CATEGORY_MAP.put("xxxw", "https://www.glc.edu.cn/xwzx/xxxw.htm");
         CATEGORY_MAP.put("xsdt", "https://www.glc.edu.cn/xwzx/xsdt.htm");
         CATEGORY_MAP.put("xykx", "https://www.glc.edu.cn/xwzx/xykx.htm");
+        CATEGORY_MAP.put("gyrw", "https://www.glc.edu.cn/xwzx/gyrw.htm");
     }
 
     public static String getCategoryName(String category) {
@@ -51,6 +52,8 @@ public class NewsService {
                 return "学术动态";
             case "xykx":
                 return "校园快讯";
+            case "gyrw":
+                return "桂院人物";
             default:
                 return "未知分类";
         }
@@ -132,27 +135,37 @@ public class NewsService {
         }
 
         if (newsList.isEmpty()) {
-            Elements links = doc.select("a[href*=../info/]");
-            for (Element link : links) {
+            // 通用解析：匹配所有有意义的链接（包括微信链接、内部链接等）
+            Elements allLinks = doc.select("a[href]");
+            for (Element link : allLinks) {
                 String title = link.text().trim();
                 String href = link.attr("href");
 
-                if (href.startsWith("../info/")) {
+                // 跳过空链接、导航链接、图片链接
+                if (title.isEmpty() || href.isEmpty() || title.length() < 4) continue;
+                if (href.equals("#") || href.startsWith("javascript:") || href.startsWith("mailto:")) continue;
+                if (title.contains("首页") || title.contains("上页") || title.contains("下页") 
+                        || title.contains("尾页") || title.contains("跳转")) continue;
+
+                // 处理相对路径
+                if (href.startsWith("../")) {
                     href = href.replace("../", "https://www.glc.edu.cn/");
+                } else if (href.startsWith("/") && !href.startsWith("//")) {
+                    href = "https://www.glc.edu.cn" + href;
                 }
 
-                // 从标题中提取日期
-                String date = extractDateFromTitle(title);
+                // 只保留有意义的新闻链接
+                if (href.contains("info/") || href.contains("mp.weixin.qq.com") || href.contains("zsgy/")) {
+                    // 从标题中提取日期
+                    String date = extractDateFromTitle(title);
+                    String cleanTitle = title.replaceFirst("^\\d{4}年\\d{2}月\\d{2}日\\s*", "").trim();
 
-                // 清理标题中的日期前缀
-                String cleanTitle = title.replaceFirst("^\\d{4}年\\d{2}月\\d{2}日\\s*", "");
-
-                if (!cleanTitle.isEmpty() && !href.isEmpty() && href.contains("info/")
-                        && !cleanTitle.contains("历任校领导")
-                        && !cleanTitle.contains("信息公开")
-                        && cleanTitle.length() > 4) {
-                    News news = new News(cleanTitle, href, date, "");
-                    newsList.add(news);
+                    if (!cleanTitle.isEmpty() && cleanTitle.length() > 4
+                            && !cleanTitle.contains("历任校领导")
+                            && !cleanTitle.contains("信息公开")) {
+                        News news = new News(cleanTitle, href, date, "");
+                        newsList.add(news);
+                    }
                 }
             }
         }
@@ -253,12 +266,20 @@ public class NewsService {
     }
 
     public Map<String, String> fetchNewsDetail(String url) throws IOException {
+        Map<String, String> detail = new HashMap<>();
+        detail.put("url", url);
+
+        // 微信公众号链接：无法直接爬取内容，返回链接引导用户访问
+        if (url.contains("mp.weixin.qq.com")) {
+            detail.put("title", "微信公众号文章");
+            detail.put("content", "<div style='text-align:center;padding:40px;'><p style='font-size:18px;color:#666;'>本文为微信公众号文章</p><p style='margin:20px 0;'><a href='" + url + "' target='_blank' style='display:inline-block;padding:12px 32px;background:#1E6B56;color:#fff;border-radius:8px;text-decoration:none;font-size:16px;'>点击阅读全文</a></p></div>");
+            return detail;
+        }
+
         Document doc = Jsoup.connect(url)
                 .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .timeout(10000)
                 .get();
-
-        Map<String, String> detail = new HashMap<>();
 
         Element titleEl = doc.selectFirst("h1, h2, .article-title, .news-title, .content_title h1");
         if (titleEl != null) {
@@ -297,8 +318,6 @@ public class NewsService {
                 detail.put("content", body.html());
             }
         }
-
-        detail.put("url", url);
 
         return detail;
     }

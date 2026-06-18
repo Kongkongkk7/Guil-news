@@ -20,7 +20,7 @@ export interface NewsDetailResponse {
   };
 }
 
-export type NewsCategory = 'xxxw' | 'xsdt' | 'gyrw' | 'mtgy';
+export type NewsCategory = 'xxxw' | 'xsdt' | 'xykx' | 'gyrw';
 
 export interface CategoryInfo {
   key: NewsCategory;
@@ -43,15 +43,15 @@ export const CATEGORIES: CategoryInfo[] = [
     description: '学术讲座与科研动态'
   },
   {
-    key: 'gyrw',
-    label: '校园要闻',
+    key: 'xykx',
+    label: '校园快讯',
     icon: '📢',
     description: '校园新鲜事和活动'
   },
   {
-    key: 'mtgy',
-    label: '媒体关注',
-    icon: '📰',
-    description: '媒体对学校的报道和关注'
+    key: 'gyrw',
+    label: '桂院人物',
+    icon: '👥',
+    description: '优秀教师与学生风采'
   }
 ];

@@ -20,8 +20,8 @@ const HERO_BG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www
 const CATEGORY_LABELS: Record<string, string> = {
   xxxw: '桂院要闻',
   xsdt: '学术动态',
-  gyrw: '校园要闻',
-  mtgy: '媒体关注'
+  xykx: '校园快讯',
+  gyrw: '桂院人物'
 };
 
 function NewsDetailPage() {
@@ -199,7 +199,7 @@ function NewsDetailPage() {
             </a>
             <div className="hidden sm:flex items-center gap-2 ml-4 border-l border-gray-200 pl-4">
               <span className="text-xs text-gray-400">快速访问</span>
-              {['xxxw', 'xsdt', 'gyrw', 'mtgy'].map(cat => (
+              {['xxxw', 'xsdt', 'xykx', 'gyrw'].map(cat => (
                 <a key={cat} href={`/?category=${cat}`}
                   className={`px-2.5 py-1 rounded text-xs ${category === cat ? 'bg-[#1E6B56] text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
                   {CATEGORY_LABELS[cat]}

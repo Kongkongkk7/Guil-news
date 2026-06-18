@@ -11,7 +11,7 @@ function App() {
   const [activeCategory, setActiveCategory] = useState<NewsCategory>(() => {
     const params = new URLSearchParams(window.location.search);
     const cat = params.get('category');
-    if (cat && ['xxxw', 'xsdt', 'gyrw', 'mtgy'].includes(cat)) {
+    if (cat && ['xxxw', 'xsdt', 'xykx', 'gyrw'].includes(cat)) {
       return cat as NewsCategory;
     }
     return 'xxxw';
@@ -119,8 +119,8 @@ function App() {
     const colors: Record<NewsCategory, string> = {
       xxxw: 'from-[#1E6B56] to-[#0D9488]',
       xsdt: 'from-[#7C3AED] to-[#A78BFA]',
-      gyrw: 'from-[#2563EB] to-[#60A5FA]',
-      mtgy: 'from-[#EA580C] to-[#FB923C]'
+      xykx: 'from-[#2563EB] to-[#60A5FA]',
+      gyrw: 'from-[#EA580C] to-[#FB923C]'
     };
     return colors[key] || colors.xxxw;
   };

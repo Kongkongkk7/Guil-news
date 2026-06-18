@@ -147,7 +147,7 @@ GET /api/news?type={category}
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| `type` | string | 分类标识：`xxxw` / `xsdt` / `xykx` |
+| `type` | string | 分类标识：`xxxw` / `xsdt` / `xykx` / `gyrw` |
 
 **响应示例：**
 
@@ -189,6 +189,7 @@ Content-Type: application/json
 | 桂院要闻 | `xxxw` | 学校重要新闻和公告 |
 | 学术动态 | `xsdt` | 学术讲座与科研动态 |
 | 校园快讯 | `xykx` | 校园新鲜事和活动 |
+| 桂院人物 | `gyrw` | 优秀教师与学生风采 |
 
 ---
 
