@@ -190,110 +190,170 @@ $javaOk = $false
 $javaHome = ""
 $javaExePath = ""
 
-# Method 1: Get-Command java
-$sysJava = Get-Command java -ErrorAction SilentlyContinue
-if ($sysJava) {
+# Helper: Validate that a java.exe path yields a valid JAVA_HOME
+# Returns the JAVA_HOME path, or $null if invalid
+function Get-JavaHomeFromExe {
+    param([string]$ExePath)
+    if (-not $ExePath -or -not (Test-Path $ExePath)) { return $null }
+
+    # Resolve symlinks (Chocolatey/scoop shims point to real java.exe)
     try {
-        $javaVersion = (& java -version 2>&1 | Out-String).Trim()
+        $resolved = (Get-Item $ExePath).Target
+        if ($resolved) { $ExePath = $resolved }
+    } catch {}
+
+    # java.exe should be in a bin/ directory; JAVA_HOME is parent of bin/
+    $binPath = Split-Path $ExePath -Parent
+    $candidateHome = Split-Path $binPath -Parent
+
+    # Verify: JAVA_HOME\bin\java.exe should exist
+    if (Test-Path (Join-Path $candidateHome "bin\java.exe")) {
+        return $candidateHome
+    }
+
+    # If not, maybe java.exe is directly in JAVA_HOME (some weird installs)
+    if (Test-Path (Join-Path $ExePath "..\..\bin\java.exe")) {
+        return (Split-Path (Split-Path $ExePath -Parent) -Parent)
+    }
+
+    return $null
+}
+
+# Helper: Check if a java.exe has version 17+
+function Test-JavaVersion {
+    param([string]$ExePath)
+    try {
+        $javaVersion = (& $ExePath -version 2>&1 | Out-String).Trim()
         $verMatch = [regex]::Match($javaVersion, '"(\d+)')
         if ($verMatch.Success -and [int]$verMatch.Groups[1].Value -ge 17) {
             $firstLine = ($javaVersion -split "`n")[0] -replace '^.*?:\s*', ''
-            Write-Ok "Found system Java: $firstLine"
-            $javaExePath = $sysJava.Source
-            # Determine JAVA_HOME
-            if ($env:JAVA_HOME -and (Test-Path $env:JAVA_HOME)) {
-                $javaHome = $env:JAVA_HOME
-            } else {
-                $binPath = Split-Path $javaExePath -Parent
-                $candidateHome = Split-Path $binPath -Parent
-                if (Test-Path (Join-Path $candidateHome "bin\java.exe")) {
-                    $javaHome = $candidateHome
-                    $env:JAVA_HOME = $javaHome
-                }
-            }
-            $javaOk = $true
-        } else {
-            Write-Warn "System Java version too old, need 17+"
+            return @{ Ok = $true; Version = $firstLine }
         }
+        return @{ Ok = $false; Version = $javaVersion }
     } catch {
-        Write-Warn "System java command failed"
+        return @{ Ok = $false; Version = "" }
     }
 }
 
-# Method 2: JAVA_HOME environment variable
-if (-not $javaOk -and $env:JAVA_HOME) {
+# Method 1: JAVA_HOME environment variable (most reliable for Maven)
+if ($env:JAVA_HOME -and (Test-Path $env:JAVA_HOME)) {
     $candidateJava = Join-Path $env:JAVA_HOME "bin\java.exe"
     if (Test-Path $candidateJava) {
-        try {
-            $javaVersion = (& $candidateJava -version 2>&1 | Out-String).Trim()
-            $verMatch = [regex]::Match($javaVersion, '"(\d+)')
-            if ($verMatch.Success -and [int]$verMatch.Groups[1].Value -ge 17) {
-                $firstLine = ($javaVersion -split "`n")[0] -replace '^.*?:\s*', ''
-                Write-Ok "Found Java (JAVA_HOME): $firstLine"
-                $javaHome = $env:JAVA_HOME
-                $javaExePath = $candidateJava
-                $env:PATH = "$javaHome\bin;$env:PATH"
-                $javaOk = $true
-            }
-        } catch {}
+        $result = Test-JavaVersion -ExePath $candidateJava
+        if ($result.Ok) {
+            Write-Ok "Found Java (JAVA_HOME): $($result.Version)"
+            $javaHome = $env:JAVA_HOME
+            $javaExePath = $candidateJava
+            $env:PATH = "$javaHome\bin;$env:PATH"
+            $javaOk = $true
+        }
     }
 }
 
-# Method 3: Common installation paths
+# Method 2: Get-Command java + resolve JAVA_HOME
 if (-not $javaOk) {
-    $commonJavaPaths = @(
-        "C:\Program Files\Java\jdk-17*\bin\java.exe",
-        "C:\Program Files\Java\jdk-2*\bin\java.exe",
-        "C:\Program Files\Eclipse Adoptium\jdk-17*\bin\java.exe",
-        "C:\Program Files\Microsoft\jdk-17*\bin\java.exe",
-        "C:\Program Files\Zulu\zulu-17*\bin\java.exe",
-        "C:\Program Files\Amazon Corretto\jdk17*\bin\java.exe",
-        "D:\Java\jdk-17*\bin\java.exe",
-        "D:\jdk-17*\bin\java.exe"
-    )
-    foreach ($p in $commonJavaPaths) {
-        $resolved = Get-Item $p -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($resolved) {
-            try {
-                $javaVersion = (& $resolved.FullName -version 2>&1 | Out-String).Trim()
-                $verMatch = [regex]::Match($javaVersion, '"(\d+)')
-                if ($verMatch.Success -and [int]$verMatch.Groups[1].Value -ge 17) {
-                    $firstLine = ($javaVersion -split "`n")[0] -replace '^.*?:\s*', ''
-                    Write-Ok "Found Java: $firstLine"
-                    $javaExePath = $resolved.FullName
-                    $binPath = Split-Path $javaExePath -Parent
-                    $javaHome = Split-Path $binPath -Parent
+    $sysJava = Get-Command java -ErrorAction SilentlyContinue
+    if ($sysJava) {
+        $result = Test-JavaVersion -ExePath $sysJava.Source
+        if ($result.Ok) {
+            Write-Ok "Found system Java: $($result.Version)"
+            $javaExePath = $sysJava.Source
+            $javaHome = Get-JavaHomeFromExe -ExePath $javaExePath
+            if ($javaHome) {
+                $env:JAVA_HOME = $javaHome
+                $env:PATH = "$javaHome\bin;$env:PATH"
+                $javaOk = $true
+            } else {
+                Write-Warn "Found java.exe but cannot determine JAVA_HOME, trying other methods..."
+            }
+        } else {
+            if ($result.Version) { Write-Warn "System Java version too old, need 17+" }
+        }
+    }
+}
+
+# Method 3: where.exe java (find ALL java.exe locations, check each)
+if (-not $javaOk) {
+    try {
+        $whereResult = (where.exe java 2>$null | Where-Object { $_ -and $_ -notlike "*\Windows\*" })
+        foreach ($javaPath in $whereResult) {
+            $result = Test-JavaVersion -ExePath $javaPath
+            if ($result.Ok) {
+                $candidateHome = Get-JavaHomeFromExe -ExePath $javaPath
+                if ($candidateHome) {
+                    Write-Ok "Found Java: $($result.Version)"
+                    $javaExePath = $javaPath
+                    $javaHome = $candidateHome
                     $env:JAVA_HOME = $javaHome
                     $env:PATH = "$javaHome\bin;$env:PATH"
                     $javaOk = $true
                     break
                 }
-            } catch {}
+            }
+        }
+    } catch {}
+}
+
+# Method 4: Common installation paths (scan for JDK directories)
+if (-not $javaOk) {
+    $commonJavaPaths = @(
+        "C:\Program Files\Java\jdk-17*\bin\java.exe",
+        "C:\Program Files\Java\jdk-2*\bin\java.exe",
+        "C:\Program Files\Java\jdk-3*\bin\java.exe",
+        "C:\Program Files\Eclipse Adoptium\jdk-17*\bin\java.exe",
+        "C:\Program Files\Eclipse Adoptium\jdk-2*\bin\java.exe",
+        "C:\Program Files\Microsoft\jdk-17*\bin\java.exe",
+        "C:\Program Files\Microsoft\jdk-2*\bin\java.exe",
+        "C:\Program Files\Zulu\zulu-17*\bin\java.exe",
+        "C:\Program Files\Zulu\zulu-2*\bin\java.exe",
+        "C:\Program Files\Amazon Corretto\jdk17*\bin\java.exe",
+        "C:\Program Files\Amazon Corretto\jdk-2*\bin\java.exe",
+        "C:\Program Files\BellSoft\Liberica JDK*\bin\java.exe",
+        "C:\Program Files\Java\jdk*\bin\java.exe",
+        "D:\Java\jdk-17*\bin\java.exe",
+        "D:\Java\jdk-2*\bin\java.exe",
+        "D:\jdk-17*\bin\java.exe",
+        "D:\jdk-2*\bin\java.exe",
+        "$env:LOCALAPPDATA\Programs\Eclipse Adoptium\jdk-17*\bin\java.exe",
+        "$env:LOCALAPPDATA\Programs\Microsoft\jdk-17*\bin\java.exe"
+    )
+    foreach ($p in $commonJavaPaths) {
+        $resolved = Get-Item $p -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($resolved) {
+            $result = Test-JavaVersion -ExePath $resolved.FullName
+            if ($result.Ok) {
+                $candidateHome = Get-JavaHomeFromExe -ExePath $resolved.FullName
+                if ($candidateHome) {
+                    Write-Ok "Found Java: $($result.Version)"
+                    $javaExePath = $resolved.FullName
+                    $javaHome = $candidateHome
+                    $env:JAVA_HOME = $javaHome
+                    $env:PATH = "$javaHome\bin;$env:PATH"
+                    $javaOk = $true
+                    break
+                }
+            }
         }
     }
 }
 
-# Method 4: Check tools/jdk
+# Method 5: Check tools/jdk
 if (-not $javaOk) {
     $localJava = Join-Path $toolsPath "jdk\bin\java.exe"
     if (Test-Path $localJava) {
-        try {
-            $javaVersion = (& $localJava -version 2>&1 | Out-String).Trim()
-            $verMatch = [regex]::Match($javaVersion, '"(\d+)')
-            if ($verMatch.Success -and [int]$verMatch.Groups[1].Value -ge 17) {
-                $firstLine = ($javaVersion -split "`n")[0] -replace '^.*?:\s*', ''
-                Write-Ok "Found local Java: $firstLine"
-                $javaHome = Join-Path $toolsPath "jdk"
-                $javaExePath = $localJava
-                $env:JAVA_HOME = $javaHome
-                $env:PATH = "$javaHome\bin;$env:PATH"
-                $javaOk = $true
-            }
-        } catch {}
+        $result = Test-JavaVersion -ExePath $localJava
+        if ($result.Ok) {
+            Write-Ok "Found local Java: $($result.Version)"
+            $javaHome = Join-Path $toolsPath "jdk"
+            $javaExePath = $localJava
+            $env:JAVA_HOME = $javaHome
+            $env:PATH = "$javaHome\bin;$env:PATH"
+            $javaOk = $true
+        }
     }
 }
 
-# Method 5: Auto-download JDK 17
+# Method 6: Auto-download JDK 17
 if (-not $javaOk) {
     Write-Warn "JDK 17+ not found. Auto-installing from China mirror..."
 
@@ -321,12 +381,11 @@ if (-not $javaOk) {
                 $javaExePath = Join-Path $javaHome "bin\java.exe"
                 $env:JAVA_HOME = $javaHome
                 $env:PATH = "$javaHome\bin;$env:PATH"
-                try {
-                    $javaVersion = (& $javaExePath -version 2>&1 | Out-String).Trim()
-                    $firstLine = ($javaVersion -split "`n")[0] -replace '^.*?:\s*', ''
-                    Write-Ok "Installed: $firstLine"
+                $result = Test-JavaVersion -ExePath $javaExePath
+                if ($result.Ok) {
+                    Write-Ok "Installed: $($result.Version)"
                     $javaOk = $true
-                } catch {
+                } else {
                     Write-Err "JDK installed but java.exe failed"
                 }
             } else {
@@ -343,6 +402,15 @@ if (-not $javaOk) {
         exit 1
     }
 }
+
+# Final safety check: JAVA_HOME must be set
+if ($javaOk -and -not $javaHome) {
+    Write-Err "Java found but JAVA_HOME could not be determined"
+    Write-Warn "Please set JAVA_HOME environment variable manually"
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+Write-Info "JAVA_HOME: $javaHome"
 
 # ============================================================
 # Step 2: Check / Install Maven
@@ -452,10 +520,11 @@ if (-not $mavenOk) {
 if (-not $mavenOk) {
     Write-Warn "Maven not found. Auto-installing from China mirror..."
 
+    # Maven 3.9.11 (latest stable). Mirrors: Huawei, Tsinghua, Aliyun, Official
     $mvnUrls = @(
-        "https://mirrors.tuna.tsinghua.edu.cn/apache/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip",
-        "https://mirrors.huaweicloud.com/apache/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip",
-        "https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip"
+        "https://mirrors.huaweicloud.com/apache/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.zip",
+        "https://dlcdn.apache.org/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.zip",
+        "https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip"
     )
     $mvnZip = Join-Path $toolsPath "maven.zip"
 
@@ -473,7 +542,7 @@ if (-not $mavenOk) {
                 $env:PATH = "$mavenBinPath;$env:PATH"
                 $env:MAVEN_HOME = $mavenHome
                 Configure-Maven -MavenHome $mavenHome
-                Write-Ok "Installed: Maven 3.9.9 (with Aliyun mirror)"
+                Write-Ok "Installed: Maven (with Aliyun mirror)"
                 $mavenOk = $true
             }
         }
@@ -743,6 +812,19 @@ if ($mavenBinPath) {
 if ($env:MAVEN_HOME) {
     $backendBatContent += "set `"`MAVEN_HOME=$env:MAVEN_HOME`"`r`n"
 }
+# Validate JAVA_HOME before running Maven
+$backendBatContent += "if not defined JAVA_HOME (`r`n"
+$backendBatContent += "  echo ERROR: JAVA_HOME is not set!`r`n"
+$backendBatContent += "  echo Please install JDK 17+ and set JAVA_HOME`r`n"
+$backendBatContent += "  pause`r`n"
+$backendBatContent += "  exit /b 1`r`n"
+$backendBatContent += ")`r`n"
+$backendBatContent += "if not exist `"%JAVA_HOME%\bin\java.exe`" (`r`n"
+$backendBatContent += "  echo ERROR: JAVA_HOME=%JAVA_HOME% is invalid (java.exe not found)`r`n"
+$backendBatContent += "  pause`r`n"
+$backendBatContent += "  exit /b 1`r`n"
+$backendBatContent += ")`r`n"
+$backendBatContent += "echo JAVA_HOME=%JAVA_HOME%`r`n"
 $backendBatContent += "echo Starting Maven Tomcat...`r`n"
 $backendBatContent += "echo.`r`n"
 $backendBatContent += "call mvn tomcat7:run`r`n"
