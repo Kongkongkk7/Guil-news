@@ -1,171 +1,265 @@
-# Guilin University News Center
+<div align="center">
 
-桂林学院新闻中心 - Java 新闻爬虫系统
+# 📰 桂林学院新闻中心
 
-## 项目简介
+### Guilin University News Center
 
-基于 Java Web + React 技术栈的校园新闻爬虫系统，实时获取桂林学院官网新闻动态，采用绿色系设计风格。
+**基于 Java + React 的校园新闻爬虫系统**
 
-## 技术栈
+实时获取桂林学院官网新闻动态，采用桂林学院绿色系设计风格
 
-| 模块 | 技术 |
+</div>
+
+---
+
+## ✨ 功能特性
+
+### 🎯 核心能力
+
+- **实时爬取** — 自动抓取桂林学院官网最新新闻
+- **智能缓存** — 5分钟内存缓存，减少重复请求
+- **并发安全** — 读写锁保证多线程环境数据一致性
+- **异步加载** — 后台异步获取缩略图，不阻塞主流程
+- **响应式设计** — 完美适配桌面端和移动端
+
+### 🖥️ 前端功能
+
+| 功能 | 说明 |
 |------|------|
-| 后端框架 | Java Servlet + JSON API |
-| 爬虫库 | Jsoup |
-| 前端框架 | React 18 + TypeScript + Vite |
-| UI 样式 | Tailwind CSS 3 |
-| 构建工具 | Maven (后端) + npm (前端) |
-| 服务器 | Tomcat 7 (后端) + Vite Dev Server (前端) |
+| 新闻列表 | 卡片式布局，支持分类切换 |
+| Hero 轮播 | 自动播放 + 手动切换 |
+| 实时搜索 | 输入关键词即时过滤 |
+| 骨架屏 | 加载状态优雅过渡 |
+| 新闻详情 | 富文本渲染 + 阅读进度条 |
+| 字号调节 | A- / A+ 适老化设计 |
+| 打印功能 | 一键打印新闻内容 |
+| 上下篇导航 | 快速跳转相邻新闻 |
 
-## 项目结构
+### ⚙️ 后端功能
+
+| 功能 | 说明 |
+|------|------|
+| Jsoup 解析 | 多选择器兼容解析 |
+| 内存缓存 | ReentrantReadWriteLock 读写锁 |
+| 异步缩略图 | ExecutorService 线程池 |
+| 日期提取 | 正则表达式自动匹配 |
+| 链接去重 | 自动过滤重复新闻 |
+| JSON API | RESTful 风格接口设计 |
+
+---
+
+## 🛠️ 技术栈
+
+<div align="center">
+
+| 后端 | 前端 |
+|:---:|:---:|
+| Java 17 | React 18 |
+| Servlet 4.0 | TypeScript 5.6 |
+| Jsoup 1.17 | Vite 5.4 |
+| Gson 2.10 | Tailwind CSS 3.4 |
+| Maven | npm |
+| Tomcat 7 | Vite Dev Server |
+
+</div>
+
+---
+
+## 📁 项目结构
 
 ```
 Guil-news/
 ├── src/main/java/com/guilin/news/
-│   ├── model/
-│   │   └── News.java              # 新闻数据模型
-│   ├── service/
-│   │   └── NewsService.java       # 爬虫核心服务（含缓存机制）
-│   └── servlet/
-│       └── ApiServlet.java        # JSON API 接口
-├── src/main/webapp/
-│   └── WEB-INF/web.xml           # Servlet 配置
+│   ├── model/News.java              # 新闻数据模型
+│   ├── service/NewsService.java     # 爬虫核心服务（缓存 + 异步）
+│   └── servlet/ApiServlet.java      # RESTful API 接口
+├── src/main/webapp/WEB-INF/web.xml  # Servlet 配置
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx                # 首页组件（列表+轮播+搜索）
-│   │   ├── NewsDetailPage.tsx     # 新闻详情页
-│   │   ├── types.ts               # TypeScript 类型定义
-│   │   ├── main.tsx               # 入口文件
-│   │   └── index.css              # 全局样式
+│   │   ├── App.tsx                  # 首页（列表 + 轮播 + 搜索）
+│   │   ├── NewsDetailPage.tsx       # 详情页（进度条 + 字号调节）
+│   │   ├── types.ts                 # TypeScript 类型定义
+│   │   ├── main.tsx                 # 应用入口
+│   │   └── index.css                # 全局样式
 │   ├── index.html
-│   ├── package.json
-│   ├── vite.config.ts             # Vite 配置（含代理）
-│   ├── tailwind.config.js         # Tailwind 配置
-│   └── postcss.config.js          # PostCSS 配置
-├── pom.xml                        # Maven 配置
-├── start-all.ps1                  # Windows PowerShell 一键启动脚本
-└── start-all.bat                  # Windows 批处理一键启动脚本
+│   ├── vite.config.ts               # Vite 配置（含 API 代理）
+│   ├── tailwind.config.js
+│   └── package.json
+├── pom.xml                          # Maven 配置
+├── start-all.ps1                    # PowerShell 一键启动
+└── start-all.bat                    # 批处理一键启动
 ```
 
-## 环境要求
+---
 
-- JDK 17+
-- Maven 3.6+
-- Node.js 18+
+## 🚀 快速开始
 
-## 快速开始
+### 环境要求
 
-### 方法一：一键启动（推荐）
+- **JDK** 17+
+- **Maven** 3.6+
+- **Node.js** 18+
 
-直接双击运行项目根目录下的启动脚本：
+### 方式一：一键启动（推荐）
 
-- **Windows PowerShell**: `start-all.ps1`
-- **Windows 批处理**: `start-all.bat`
+双击运行项目根目录下的启动脚本：
 
-脚本会自动完成以下操作：
+```
+start-all.ps1    # PowerShell 脚本
+start-all.bat    # 批处理脚本
+```
+
+脚本会自动完成：
 1. 检查 Java、Maven、Node.js 环境
-2. 释放占用的端口（8080、5173）
-3. 安装前端依赖（如果未安装）
-4. 启动 Java 后端和 React 前端
+2. 安装前端依赖（首次运行）
+3. 启动 Java 后端（端口 8080）
+4. 启动 React 前端（端口 5173）
 
-### 方法二：手动启动
+### 方式二：手动启动
 
 ```bash
+# 1. 克隆仓库
 git clone https://github.com/Kongkongkk7/Guil-news.git
 cd Guil-news
-```
 
-**启动 Java 后端：**
-
-```bash
+# 2. 启动后端
 mvn tomcat7:run
-```
 
-后端将在 http://localhost:8080/guilin-news/ 启动
-
-**启动 React 前端：**
-
-```bash
+# 3. 启动前端（新终端）
 cd frontend
 npm install
 npm run dev
 ```
 
-前端将在 http://localhost:5173 启动
-
 ### 访问应用
 
-打开浏览器访问 http://localhost:5173
+打开浏览器访问 **http://localhost:5173**
 
-## API 接口
+---
 
-| 接口 | 方法 | 说明 |
+## 📡 API 文档
+
+### 获取新闻列表
+
+```
+GET /api/news?type={category}
+```
+
+| 参数 | 类型 | 说明 |
 |------|------|------|
-| `/api/news?type={category}` | GET | 获取新闻列表 |
-| `/api/news/detail?url={url}` | GET | 获取新闻详情 |
-| `/api/news/thumbnails` | POST | 批量获取缩略图 |
-| `/api/news/categories` | GET | 获取所有分类 |
+| `type` | string | 分类标识：`xxxw` / `xsdt` / `xykx` |
 
-## 新闻分类
+**响应示例：**
 
-| 分类标识 | 名称 | 说明 |
-|----------|------|------|
-| `xxxw` | 桂院要闻 | 学校重要新闻和公告 |
-| `xsdt` | 学术动态 | 学术讲座与科研动态 |
-| `xykx` | 校园快讯 | 校园新鲜事和活动 |
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "title": "新闻标题",
+      "link": "https://www.glc.edu.cn/...",
+      "date": "2024-01-15",
+      "thumbnail": "https://..."
+    }
+  ]
+}
+```
 
-## 核心功能
+### 获取新闻详情
 
-### 后端功能 (`NewsService.java`)
-- ✅ Jsoup 解析网页内容
-- ✅ 5分钟内存缓存机制（ReentrantReadWriteLock）
-- ✅ 并发安全的缓存读写
-- ✅ 异步获取新闻缩略图（ExecutorService）
-- ✅ 日期自动提取（正则匹配）
-- ✅ 新闻链接去重
-- ✅ 多选择器兼容解析
+```
+GET /api/news/detail?url={url}
+```
 
-### 前端功能 (`App.tsx`)
-- ✅ 新闻列表展示（卡片式布局）
-- ✅ Hero 轮播（自动播放+手动切换）
-- ✅ 新闻搜索（实时过滤）
-- ✅ 分类导航（带视觉反馈）
-- ✅ 加载状态骨架屏
-- ✅ 错误处理与重试
-- ✅ 响应式设计（移动端适配）
-- ✅ 桂林学院绿色系设计风格
+### 批量获取缩略图
 
-### 详情页功能 (`NewsDetailPage.tsx`)
-- ✅ 富文本内容渲染
-- ✅ 阅读进度条
-- ✅ 字号调节（A-/A+）
-- ✅ 打印功能
-- ✅ 上一篇/下一篇导航
-- ✅ 返回顶部按钮
-- ✅ 阅读时间预估
+```
+POST /api/news/thumbnails
+Content-Type: application/json
 
-## 开发说明
+{
+  "urls": ["https://...", "https://..."]
+}
+```
 
-### 添加新的新闻分类
+### 新闻分类
 
-1. 在 `NewsService.java` 的 `CATEGORY_MAP` 中添加新的 URL
+| 分类 | 标识 | 说明 |
+|------|------|------|
+| 桂院要闻 | `xxxw` | 学校重要新闻和公告 |
+| 学术动态 | `xsdt` | 学术讲座与科研动态 |
+| 校园快讯 | `xykx` | 校园新鲜事和活动 |
+
+---
+
+## 🎨 设计亮点
+
+- **桂林学院绿色系** — 主色调 `#1E6B56`，呼应学校视觉形象
+- **渐变 Hero 区域** — 多层渐变 + 装饰圆形，营造层次感
+- **骨架屏加载** — 内容加载时显示占位骨架，避免闪烁
+- **平滑过渡动画** — 分类切换、卡片悬停均有流畅动效
+- **阅读进度条** — 详情页顶部显示阅读进度
+- **适老化设计** — 支持字号调节，提升可访问性
+
+---
+
+## 🔧 开发指南
+
+### 添加新闻分类
+
+1. 在 [NewsService.java](src/main/java/com/guilin/news/service/NewsService.java) 的 `CATEGORY_MAP` 中添加 URL
 2. 在 `getCategoryName()` 方法中添加分类名称
-3. 在 `frontend/src/types.ts` 的 `CATEGORIES` 中添加分类信息
+3. 在 [types.ts](frontend/src/types.ts) 的 `CATEGORIES` 中添加分类信息
 
 ### 修改爬虫规则
 
-爬虫规则在 `NewsService.java` 的 `fetchNews()` 方法中，使用 Jsoup 选择器语法。
+爬虫规则位于 `NewsService.java` 的 `fetchNews()` 方法，使用 Jsoup 选择器语法。
 
-## 常见问题
+---
 
-### 1. 爬取失败
+## ❓ 常见问题
 
-检查网络连接，确保可以访问 https://www.glc.edu.cn/
+<details>
+<summary><b>爬取失败怎么办？</b></summary>
 
-### 2. 前端无法连接后端
+检查网络连接，确保能访问 https://www.glc.edu.cn/。学校官网偶尔会维护，稍后重试即可。
 
-确保 Java 后端已在 8080 端口启动，并检查 `vite.config.ts` 中的代理配置。
+</details>
 
-## License
+<details>
+<summary><b>前端显示"网络错误"？</b></summary>
 
-Private - 仅供学习使用
+1. 确认 Java 后端已在 8080 端口启动
+2. 检查 [vite.config.ts](frontend/vite.config.ts) 中的代理配置
+3. 查看后端控制台是否有异常信息
+
+</details>
+
+<details>
+<summary><b>端口被占用？</b></summary>
+
+使用一键启动脚本会自动释放端口，或手动执行：
+
+```bash
+# Windows
+netstat -ano | findstr :8080
+taskkill /PID <进程ID> /F
+```
+
+</details>
+
+---
+
+## 📄 License
+
+本项目仅供学习交流使用
+
+---
+
+<div align="center">
+
+**⭐ 如果这个项目对你有帮助，请给个 Star！**
+
+Made with ❤️ for Guilin University
+
+</div>
