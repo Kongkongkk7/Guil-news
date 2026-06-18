@@ -9,6 +9,10 @@ echo     One-Click Startup Script
 echo ==========================================
 echo.
 
+:: Get script directory
+set "SCRIPT_DIR=%~dp0"
+set "PS1_FILE=%SCRIPT_DIR%start-all.ps1"
+
 :: Check if PowerShell is available
 where powershell >nul 2>&1
 if errorlevel 1 (
@@ -19,22 +23,34 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Run the PowerShell script with execution policy bypass
+:: Check if ps1 file exists
+if not exist "%PS1_FILE%" (
+    echo ERROR: start-all.ps1 not found!
+    echo Expected location: %PS1_FILE%
+    echo.
+    pause
+    exit /b 1
+)
+
 echo Launching startup script...
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-all.ps1"
+
+:: Run PowerShell script (output displays directly in this window)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1_FILE%"
 
 set EXITCODE=%ERRORLEVEL%
 echo.
+echo ==========================================
 if %EXITCODE% neq 0 (
-    echo ==========================================
-    echo  Startup failed (exit code: %EXITCODE%)
+    echo  Startup FAILED ^(exit code: %EXITCODE%^)
     echo  Please check the error messages above
-    echo ==========================================
 ) else (
-    echo ==========================================
-    echo  Script finished
-    echo ==========================================
+    echo  Script finished ^(services are running in separate windows^)
 )
+echo ==========================================
 echo.
-pause
+echo Note: Backend and frontend run in separate windows.
+echo Close those windows to stop the services.
+echo.
+echo Press any key to close this launcher window...
+pause >nul

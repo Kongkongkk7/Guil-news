@@ -28,7 +28,7 @@ if ($PSCommandPath) {
 
 if (-not $rootPath -or -not (Test-Path $rootPath)) {
     Write-Host "ERROR: Cannot determine script directory" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Start-Sleep -Seconds 3
     exit 1
 }
 
@@ -39,7 +39,7 @@ $frontendPath = Join-Path $rootPath "frontend"
 if (-not (Test-Path (Join-Path $rootPath "pom.xml"))) {
     Write-Host "ERROR: pom.xml not found in $rootPath" -ForegroundColor Red
     Write-Host "Please run this script from the project root directory" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Start-Sleep -Seconds 3
     exit 1
 }
 
@@ -51,7 +51,6 @@ if (-not (Test-Path $toolsPath)) {
 # ============================================================
 # Header
 # ============================================================
-Clear-Host
 Write-Host ""
 Write-Host "  ==========================================" -ForegroundColor Cyan
 Write-Host "      Guilin University News Center" -ForegroundColor Cyan
@@ -407,7 +406,7 @@ if (-not $javaOk) {
 if ($javaOk -and -not $javaHome) {
     Write-Err "Java found but JAVA_HOME could not be determined"
     Write-Warn "Please set JAVA_HOME environment variable manually"
-    Read-Host "Press Enter to exit"
+    Start-Sleep -Seconds 3
     exit 1
 }
 Write-Info "JAVA_HOME: $javaHome"
@@ -938,6 +937,3 @@ Write-Host ""
 Write-Host "  Tips:" -ForegroundColor Gray
 Write-Host "  - Wait 10-15 seconds for services to fully start" -ForegroundColor Gray
 Write-Host "  - Close both command windows to stop services" -ForegroundColor Gray
-Write-Host ""
-Write-Host "  Press Enter to exit this window (services keep running)" -ForegroundColor Yellow
-Read-Host
