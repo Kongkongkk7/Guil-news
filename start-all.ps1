@@ -119,30 +119,87 @@ function Ensure-JavaHome {
     if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME "bin\java.exe"))) {
         return
     }
-    # 从 java 命令路径反推 JAVA_HOME
+
     $oldEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
+    $javaHome = $null
+
+    # 策略1：通过 java -XshowSettings:properties 获取真实 java.home
     try {
-        $javaCmd = Get-Command java -ErrorAction SilentlyContinue
-        if ($javaCmd) {
-            # java.exe 通常在 $JAVA_HOME\bin\ 下，取上两级
-            $binDir = Split-Path $javaCmd.Source -Parent
-            $javaHome = Split-Path $binDir -Parent
-            if (Test-Path (Join-Path $javaHome "bin\java.exe")) {
-                $env:JAVA_HOME = $javaHome
-                # 管理员权限下持久化到系统环境变量
-                if ($isAdmin) {
-                    [Environment]::SetEnvironmentVariable("JAVA_HOME", $javaHome, "Machine")
-                    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-                    if ($machinePath -notlike "*$binDir*") {
-                        [Environment]::SetEnvironmentVariable("Path", "$binDir;$machinePath", "Machine")
-                    }
-                }
-                Write-Host "  已自动设置 JAVA_HOME = $javaHome" -ForegroundColor Gray
+        $output = & java -XshowSettings:properties -version 2>&1 | Out-String
+        if ($output -match 'java\.home\s*=\s*(.+)') {
+            $candidate = $matches[1].Trim()
+            # java.home 可能指向 jre 子目录，向上找 JDK 根目录
+            if (Test-Path (Join-Path $candidate "bin\java.exe")) {
+                $javaHome = $candidate
+            } elseif (Test-Path (Join-Path $candidate "..\bin\java.exe")) {
+                $javaHome = (Resolve-Path (Join-Path $candidate "..")).Path
             }
         }
-    } catch {} finally {
-        $ErrorActionPreference = $oldEAP
+    } catch {}
+
+    # 策略2：扫描常见 JDK 安装路径
+    if (-not $javaHome) {
+        $searchPaths = @(
+            "C:\Program Files\Java\jdk-*",
+            "C:\Program Files\Microsoft\jdk-*",
+            "C:\Program Files\Eclipse Adoptium\jdk-*",
+            "C:\Program Files\Zulu\zulu-*",
+            "C:\Program Files\BellSoft\Liberica JDK-*",
+            "C:\Program Files\Amazon Corretto\jdk*"
+        )
+        foreach ($pattern in $searchPaths) {
+            $dirs = Get-Item $pattern -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+            foreach ($dir in $dirs) {
+                if (Test-Path (Join-Path $dir.FullName "bin\java.exe")) {
+                    $javaHome = $dir.FullName
+                    break
+                }
+            }
+            if ($javaHome) { break }
+        }
+    }
+
+    # 策略3：从注册表查找 JavaSoft JDK
+    if (-not $javaHome) {
+        $regPaths = @(
+            "HKLM:\SOFTWARE\JavaSoft\JDK",
+            "HKLM:\SOFTWARE\JavaSoft\Java Development Kit",
+            "HKLM:\SOFTWARE\WOW6432Node\JavaSoft\JDK",
+            "HKLM:\SOFTWARE\WOW6432Node\JavaSoft\Java Development Kit"
+        )
+        foreach ($regPath in $regPaths) {
+            if (Test-Path $regPath) {
+                $keys = Get-ChildItem $regPath -ErrorAction SilentlyContinue | Sort-Object PSChildName -Descending
+                foreach ($key in $keys) {
+                    $home = (Get-ItemProperty $key.PSPath -ErrorAction SilentlyContinue).JavaHome
+                    if ($home -and (Test-Path (Join-Path $home "bin\java.exe"))) {
+                        $javaHome = $home
+                        break
+                    }
+                }
+            }
+            if ($javaHome) { break }
+        }
+    }
+
+    $ErrorActionPreference = $oldEAP
+
+    if ($javaHome) {
+        $env:JAVA_HOME = $javaHome
+        $binDir = Join-Path $javaHome "bin"
+        # 管理员权限下持久化到系统环境变量
+        if ($isAdmin) {
+            [Environment]::SetEnvironmentVariable("JAVA_HOME", $javaHome, "Machine")
+            $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+            if ($machinePath -notlike "*$binDir*") {
+                [Environment]::SetEnvironmentVariable("Path", "$binDir;$machinePath", "Machine")
+            }
+        }
+        Write-Host "  已自动设置 JAVA_HOME = $javaHome" -ForegroundColor Gray
+    } else {
+        Write-Warn "无法自动检测 JAVA_HOME，Maven 可能启动失败"
+        Write-Host "  请手动设置 JAVA_HOME 环境变量指向 JDK 安装目录" -ForegroundColor Yellow
     }
 }
 
@@ -590,7 +647,7 @@ $tomcatConf = Join-Path $rootPath "target\tomcat"
 if (Test-Path $tomcatConf) {
     Remove-Item $tomcatConf -Recurse -Force -ErrorAction SilentlyContinue
 }
-$backendCmd = "cd /d `"$rootPath`" && mvn tomcat7:run -s `"$m2Settings`" -Dmaven.tomcat.port=$backendPort"
+$backendCmd = "cd /d `"$rootPath`" && set JAVA_HOME=$env:JAVA_HOME && mvn tomcat7:run -s `"$m2Settings`" -Dmaven.tomcat.port=$backendPort"
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title Guilin-News-Backend && $backendCmd"
 Write-Host "  等待后端启动..." -ForegroundColor White
 Start-Sleep -Seconds 12
