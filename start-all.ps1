@@ -216,47 +216,26 @@ function Install-Java {
 function Install-Maven {
     Write-Step "正在安装 Maven 3.9 ..."
 
-    $mavenVersion = "3.9.9"
-
-    # 尝试从官方页面动态获取最新的 3.9.x 版本号，避免旧版本被移除导致 404
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    try {
-        $dlcdnPage = Invoke-WebRequest -Uri "https://dlcdn.apache.org/maven/maven-3/" -UseBasicParsing -TimeoutSec 10
-        if ($dlcdnPage.Content -match 'href="(3\.9\.\d+)/"') {
-            $mavenVersion = $matches[1]
-            Write-Host "  检测到最新版本: Maven $mavenVersion"
-        }
-    } catch {
-        Write-Warn "无法检测最新版本，使用默认 $mavenVersion"
-    }
-
-    # 下载源列表：清华镜像 → 官方 dlcdn → Apache 归档（永久保留所有版本）
-    $mavenUrls = @(
-        @{ Url = "https://mirrors.tuna.tsinghua.edu.cn/apache/maven/maven-3/$mavenVersion/binaries/apache-maven-$mavenVersion-bin.zip"; Name = "清华镜像" },
-        @{ Url = "https://dlcdn.apache.org/maven/maven-3/$mavenVersion/binaries/apache-maven-$mavenVersion-bin.zip"; Name = "官方地址" },
-        @{ Url = "https://archive.apache.org/dist/maven/maven-3/$mavenVersion/binaries/apache-maven-$mavenVersion-bin.zip"; Name = "Apache 归档" }
-    )
-    $mavenZip = Join-Path $env:TEMP "apache-maven-$mavenVersion-bin.zip"
+    $mavenUrl = "https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip"
+    # 国内备用下载地址
+    $mavenUrlCn = "https://mirrors.tuna.tsinghua.edu.cn/apache/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip"
+    $mavenZip = Join-Path $env:TEMP "apache-maven-3.9.9-bin.zip"
     $mavenDir = "C:\Program Files\Apache\maven"
 
-    $downloaded = $false
-    foreach ($source in $mavenUrls) {
-        Write-Host "  下载 Maven $mavenVersion（$($source.Name)）..."
+    Write-Host "  下载 Maven 3.9.9（国内镜像）..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    try {
+        Invoke-WebRequest -Uri $mavenUrlCn -OutFile $mavenZip -UseBasicParsing -TimeoutSec 120
+    } catch {
+        Write-Warn "国内镜像下载失败，尝试官方地址..."
         try {
-            Invoke-WebRequest -Uri $source.Url -OutFile $mavenZip -UseBasicParsing -TimeoutSec 120
-            $downloaded = $true
-            Write-OK "下载成功（$($source.Name)）"
-            break
+            Invoke-WebRequest -Uri $mavenUrl -OutFile $mavenZip -UseBasicParsing -TimeoutSec 120
         } catch {
-            Write-Warn "$($source.Name)下载失败: $($_.Exception.Message)"
+            Write-Err "下载 Maven 失败: $($_.Exception.Message)"
+            Write-Host "  请手动安装 Maven 3.6+:" -ForegroundColor Yellow
+            Write-Host "  下载地址: https://maven.apache.org/download.cgi"
+            return $false
         }
-    }
-
-    if (-not $downloaded) {
-        Write-Err "所有下载源均失败"
-        Write-Host "  请手动安装 Maven 3.6+:" -ForegroundColor Yellow
-        Write-Host "  下载地址: https://maven.apache.org/download.cgi"
-        return $false
     }
 
     Write-Host "  解压安装..."
@@ -284,7 +263,7 @@ function Install-Maven {
     }
 
     if (Test-Command "mvn") {
-        Write-OK "Maven $mavenVersion 安装成功"
+        Write-OK "Maven 3.9.9 安装成功"
         return $true
     }
     Write-Err "Maven 安装后仍无法使用"
