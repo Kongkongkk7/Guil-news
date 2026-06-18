@@ -114,6 +114,38 @@ function Find-AvailablePort($startPort) {
     return $startPort
 }
 
+function Ensure-JavaHome {
+    # 如果 JAVA_HOME 已设置且有效，直接返回
+    if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME "bin\java.exe"))) {
+        return
+    }
+    # 从 java 命令路径反推 JAVA_HOME
+    $oldEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $javaCmd = Get-Command java -ErrorAction SilentlyContinue
+        if ($javaCmd) {
+            # java.exe 通常在 $JAVA_HOME\bin\ 下，取上两级
+            $binDir = Split-Path $javaCmd.Source -Parent
+            $javaHome = Split-Path $binDir -Parent
+            if (Test-Path (Join-Path $javaHome "bin\java.exe")) {
+                $env:JAVA_HOME = $javaHome
+                # 管理员权限下持久化到系统环境变量
+                if ($isAdmin) {
+                    [Environment]::SetEnvironmentVariable("JAVA_HOME", $javaHome, "Machine")
+                    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+                    if ($machinePath -notlike "*$binDir*") {
+                        [Environment]::SetEnvironmentVariable("Path", "$binDir;$machinePath", "Machine")
+                    }
+                }
+                Write-Host "  已自动设置 JAVA_HOME = $javaHome" -ForegroundColor Gray
+            }
+        }
+    } catch {} finally {
+        $ErrorActionPreference = $oldEAP
+    }
+}
+
 function Get-JavaVersion {
     $oldEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -451,6 +483,8 @@ if (Test-Command "java") {
         # 版本较低但可能仍可用，只警告不退出
         Write-Warn "Java 版本较低: $javaVersionStr（建议 11+，将尝试继续运行）"
     }
+    # 确保 JAVA_HOME 已设置（Maven 启动依赖此变量）
+    Ensure-JavaHome
 } else {
     Write-Warn "未检测到 Java"
     if ($isAdmin) {
@@ -460,6 +494,7 @@ if (Test-Command "java") {
         Read-Host "按 Enter 键退出"
         exit 1
     }
+    Ensure-JavaHome
 }
 
 # [3/7] 检查/安装 Maven
