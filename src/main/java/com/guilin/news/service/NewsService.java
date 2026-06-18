@@ -273,8 +273,55 @@ public class NewsService {
         Map<String, String> detail = new HashMap<>();
         detail.put("url", url);
 
-        // 微信公众号链接：无法直接爬取内容，返回链接引导用户访问
+        // 微信公众号链接：尝试解析文章内容
         if (url.contains("mp.weixin.qq.com")) {
+            try {
+                Document wxDoc = Jsoup.connect(url)
+                        .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .header("Accept", "text/html,application/xhtml+xml")
+                        .header("Accept-Language", "zh-CN,zh;q=0.9")
+                        .timeout(15000)
+                        .get();
+
+                // 提取标题
+                Element wxTitle = wxDoc.selectFirst("#activity-name, .rich_media_title");
+                if (wxTitle != null) {
+                    detail.put("title", wxTitle.text().trim());
+                }
+
+                // 提取内容
+                Element wxContent = wxDoc.selectFirst("#js_content, .rich_media_content");
+                if (wxContent != null) {
+                    wxContent.select("script, style, iframe").remove();
+
+                    // 处理微信图片：data-src -> src
+                    Elements wxImages = wxContent.select("img");
+                    for (Element img : wxImages) {
+                        String dataSrc = img.attr("data-src");
+                        if (!dataSrc.isEmpty()) {
+                            img.attr("src", dataSrc);
+                        }
+                        // 移除懒加载属性
+                        img.removeAttr("data-src");
+                        img.removeAttr("loading");
+                    }
+
+                    String contentHtml = wxContent.html();
+                    if (contentHtml.length() > 50) {
+                        detail.put("content", contentHtml);
+
+                        // 提取第一张图作为缩略图
+                        Element firstImg = wxContent.selectFirst("img[src]");
+                        if (firstImg != null) {
+                            detail.put("thumbnail", firstImg.attr("src"));
+                        }
+                        return detail;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
+            // 解析失败，返回引导跳转卡片
             detail.put("title", "微信公众号文章");
             detail.put("content", "<div style='text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;'>"
                 + "<div style='width:64px;height:64px;margin:0 auto 24px;background:#07C160;border-radius:16px;"
