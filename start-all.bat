@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul 2>&1
+title Guilin University News Center - One-Click Startup
 cls
 
 echo ==========================================
@@ -13,17 +14,27 @@ where powershell >nul 2>&1
 if errorlevel 1 (
     echo ERROR: PowerShell not found!
     echo Please install Windows PowerShell 5.1+
+    echo.
     pause
     exit /b 1
 )
 
 :: Run the PowerShell script with execution policy bypass
-echo Launching PowerShell script...
+echo Launching startup script...
 echo.
-powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0start-all.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-all.ps1"
 
-if errorlevel 1 (
-    echo.
-    echo Startup failed. Please check the error messages above.
-    pause
+set EXITCODE=%ERRORLEVEL%
+echo.
+if %EXITCODE% neq 0 (
+    echo ==========================================
+    echo  Startup failed (exit code: %EXITCODE%)
+    echo  Please check the error messages above
+    echo ==========================================
+) else (
+    echo ==========================================
+    echo  Script finished
+    echo ==========================================
 )
+echo.
+pause
