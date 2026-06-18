@@ -95,15 +95,19 @@ public class NewsService {
         Elements newsItems = doc.select("li, .news-item, .list-item");
 
         for (Element item : newsItems) {
-            Element linkEl = item.selectFirst("a[href*=info/]");
+            // 查找新闻链接：内部链接、微信链接、招生链接
+            Element linkEl = item.selectFirst("a[href*=info/], a[href*=mp.weixin], a[href*=zsgy/]");
             if (linkEl == null) continue;
 
             String title = linkEl.text().trim();
             String href = linkEl.attr("href");
 
-            if (href.startsWith("../info/")) {
+            // 处理相对路径
+            if (href.startsWith("../")) {
                 href = href.replace("../", "https://www.glc.edu.cn/");
-            } else if (href.startsWith("info/")) {
+            } else if (href.startsWith("/") && !href.startsWith("//")) {
+                href = "https://www.glc.edu.cn" + href;
+            } else if (!href.startsWith("http")) {
                 href = "https://www.glc.edu.cn/" + href;
             }
 
@@ -122,10 +126,10 @@ public class NewsService {
                 }
             }
 
-            // 清理标题中的日期前缀
-            String cleanTitle = title.replaceFirst("^\\d{4}年\\d{2}月\\d{2}日\\s*", "");
+            // 清理标题中的日期前缀和多余空格
+            String cleanTitle = title.replaceFirst("^\\d{4}年\\d{2}月\\d{2}日\\s*", "").trim();
 
-            if (!cleanTitle.isEmpty() && !href.isEmpty() && href.contains("info/")
+            if (!cleanTitle.isEmpty() && !href.isEmpty()
                     && !cleanTitle.contains("历任校领导")
                     && !cleanTitle.contains("信息公开")
                     && cleanTitle.length() > 4) {
