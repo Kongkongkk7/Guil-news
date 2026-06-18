@@ -642,12 +642,23 @@ Start-Sleep -Seconds 1
 
 # 启动后端（使用动态端口）
 Write-Host "  启动后端服务 (端口 $backendPort)..." -ForegroundColor White
+
+# 最终检查 JAVA_HOME（Maven 启动必需）
+if (-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME "bin\java.exe"))) {
+    Write-Err "JAVA_HOME 未正确设置，Maven 无法启动"
+    Write-Host "  当前 JAVA_HOME = '$env:JAVA_HOME'" -ForegroundColor Yellow
+    Write-Host "  请手动设置 JAVA_HOME 环境变量指向 JDK 安装目录（如 C:\Program Files\Java\jdk-17）" -ForegroundColor Yellow
+    Read-Host "按 Enter 键退出"
+    exit 1
+}
+Write-Host "  JAVA_HOME = $env:JAVA_HOME" -ForegroundColor Gray
+
 # 清理旧的 Tomcat 配置避免冲突
 $tomcatConf = Join-Path $rootPath "target\tomcat"
 if (Test-Path $tomcatConf) {
     Remove-Item $tomcatConf -Recurse -Force -ErrorAction SilentlyContinue
 }
-$backendCmd = "cd /d `"$rootPath`" && set JAVA_HOME=$env:JAVA_HOME && mvn tomcat7:run -s `"$m2Settings`" -Dmaven.tomcat.port=$backendPort"
+$backendCmd = "cd /d `"$rootPath`" && set `"JAVA_HOME=$env:JAVA_HOME`" && mvn tomcat7:run -s `"$m2Settings`" -Dmaven.tomcat.port=$backendPort"
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title Guilin-News-Backend && $backendCmd"
 Write-Host "  等待后端启动..." -ForegroundColor White
 Start-Sleep -Seconds 12
