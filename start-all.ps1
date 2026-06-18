@@ -374,9 +374,10 @@ Write-Host ""
 Write-Host "[5/6] Checking ports..." -ForegroundColor Yellow
 
 foreach ($port in @(8080, 5173)) {
-    $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+    $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
     if ($conn) {
-        $procIds = $conn.OwningProcess | Select-Object -Unique
+        # Filter out PID 0 (System Idle Process) which should never be stopped
+        $procIds = $conn.OwningProcess | Where-Object { $_ -ne 0 } | Select-Object -Unique
         foreach ($p in $procIds) {
             $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
             if ($proc) {
@@ -407,8 +408,34 @@ Set-Content -Path $backendBat -Value $backendScript -Encoding Default
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k", $backendBat -WindowStyle Normal
 Write-Host "  Backend starting..." -ForegroundColor Green
 
-Write-Host "  Waiting for backend to initialize..." -ForegroundColor Gray
-Start-Sleep -Seconds 12
+# Wait for backend port 8080 to be ready (poll up to 5 minutes for first-time build)
+Write-Host "  Waiting for backend to be ready (first-time build may take several minutes)..." -ForegroundColor Gray
+$backendReady = $false
+$maxWaitSeconds = 300
+$waitedSeconds = 0
+while ($waitedSeconds -lt $maxWaitSeconds) {
+    Start-Sleep -Seconds 3
+    $waitedSeconds += 3
+    $conn = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
+    if ($conn) {
+        # Verify it's a real process (not PID 0)
+        $realProc = $conn.OwningProcess | Where-Object { $_ -ne 0 } | Select-Object -First 1
+        if ($realProc) {
+            $backendReady = $true
+            break
+        }
+    }
+    # Show progress every 15 seconds
+    if ($waitedSeconds % 15 -eq 0) {
+        Write-Host "  Still waiting... ($waitedSeconds s elapsed)" -ForegroundColor DarkGray
+    }
+}
+
+if ($backendReady) {
+    Write-Host "  Backend ready! (took $waitedSeconds s)" -ForegroundColor Green
+} else {
+    Write-Host "  Backend not ready after $maxWaitSeconds s, starting frontend anyway..." -ForegroundColor DarkYellow
+}
 
 Write-Host "  Starting frontend (port 5173)..." -ForegroundColor Gray
 $frontendScript = @"
