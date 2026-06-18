@@ -28,7 +28,15 @@ logs/
 .env
 *.local
 
-# Node (if frontend exists)
+# Node
 node_modules/
 frontend/dist/
 frontend/node_modules/
+
+# Build
+build/
+out/
+
+# Cache
+.cache/
+*.tmp

@@ -1,3 +1,0 @@
---- school logo placeholder ---
---- This file is a placeholder. The actual logo image was provided by the user. ---
---- Please save the logo as logo.png in this directory (D:\demo1\frontend\public\logo.png) ---

@@ -93,7 +93,7 @@ npm run dev
 
 前端将在 http://localhost:5173 启动
 
-### 4. 访问应用
+### 访问应用
 
 打开浏览器访问 http://localhost:5173
 
