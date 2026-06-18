@@ -1,939 +1,632 @@
-# Guilin University News Center - One-Click Startup Script
-# Automatically detects and installs JDK 17, Maven, Node.js
-# Uses China mirrors for faster downloads
-# Robust error handling for any Windows environment
-$ErrorActionPreference = "Continue"
-$ProgressPreference = "SilentlyContinue"
+﻿# 桂林学院新闻中心 - 一键启动脚本
+# 支持在任意 Windows 电脑上克隆后直接运行
+# 自动检测/安装依赖、配置国内镜像源
 
-# Force UTF-8 output for Chinese characters
-try {
-    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-    $OutputEncoding = [System.Text.Encoding]::UTF8
-} catch {}
+$ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-# ============================================================
-# Determine script root path (handle all invocation methods)
-# ============================================================
-$rootPath = $null
-if ($PSCommandPath) {
-    $rootPath = Split-Path $PSCommandPath -Parent
-} elseif ($MyInvocation.MyCommand.Path) {
-    $rootPath = Split-Path $MyInvocation.MyCommand.Path -Parent
-} elseif ($PSScriptRoot) {
-    $rootPath = $PSScriptRoot
-} else {
-    # Fallback: use current directory
-    $rootPath = (Get-Location).Path
+# ========== 自动提权 ==========
+$currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($currentUser)
+$isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $isAdmin) {
+    Write-Host "需要管理员权限来安装依赖，正在请求提权..." -ForegroundColor Yellow
+    $scriptPath = $MyInvocation.MyCommand.Path
+    # 使用 -NoExit 确保提权后的窗口不会闪退
+    Start-Process powershell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-File", "`"$scriptPath`"" -Verb RunAs
+    exit
 }
 
-if (-not $rootPath -or -not (Test-Path $rootPath)) {
-    Write-Host "ERROR: Cannot determine script directory" -ForegroundColor Red
-    Start-Sleep -Seconds 3
-    exit 1
-}
-
-$toolsPath = Join-Path $rootPath "tools"
+# ========== 全局变量 ==========
+$rootPath = $PSScriptRoot
 $frontendPath = Join-Path $rootPath "frontend"
+$backendPort = 8080
+$frontendPort = 5173
+$m2Path = Join-Path $env:USERPROFILE ".m2"
+$m2Settings = Join-Path $m2Path "settings.xml"
+$localMavenSettings = Join-Path $rootPath "maven-settings.xml"
 
-# Verify project structure
-if (-not (Test-Path (Join-Path $rootPath "pom.xml"))) {
-    Write-Host "ERROR: pom.xml not found in $rootPath" -ForegroundColor Red
-    Write-Host "Please run this script from the project root directory" -ForegroundColor Red
-    Start-Sleep -Seconds 3
-    exit 1
+# ========== 工具函数 ==========
+function Write-Step($msg) {
+    Write-Host ""
+    Write-Host "[INFO] $msg" -ForegroundColor Cyan
 }
 
-# Create tools directory
-if (-not (Test-Path $toolsPath)) {
-    New-Item -ItemType Directory -Path $toolsPath -Force | Out-Null
+function Write-OK($msg) {
+    Write-Host "  [OK] $msg" -ForegroundColor Green
 }
 
-# ============================================================
-# Header
-# ============================================================
-Write-Host ""
-Write-Host "  ==========================================" -ForegroundColor Cyan
-Write-Host "      Guilin University News Center" -ForegroundColor Cyan
-Write-Host "      One-Click Startup Script" -ForegroundColor Cyan
-Write-Host "      (China mirrors enabled)" -ForegroundColor Cyan
-Write-Host "  ==========================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  Project: $rootPath" -ForegroundColor DarkGray
-Write-Host ""
-
-# ============================================================
-# Helper functions
-# ============================================================
-
-function Write-Step {
-    param([string]$Message)
-    Write-Host "[*] $Message" -ForegroundColor Yellow
+function Write-Warn($msg) {
+    Write-Host "  [!] $msg" -ForegroundColor Yellow
 }
 
-function Write-Ok {
-    param([string]$Message)
-    Write-Host "    [OK] $Message" -ForegroundColor Green
+function Write-Err($msg) {
+    Write-Host "  [X] $msg" -ForegroundColor Red
 }
 
-function Write-Warn {
-    param([string]$Message)
-    Write-Host "    [!] $Message" -ForegroundColor DarkYellow
+function Test-Command($cmd) {
+    return [bool](Get-Command $cmd -ErrorAction SilentlyContinue)
 }
 
-function Write-Err {
-    param([string]$Message)
-    Write-Host "    [X] $Message" -ForegroundColor Red
-}
-
-function Write-Info {
-    param([string]$Message)
-    Write-Host "    $Message" -ForegroundColor Gray
-}
-
-function Download-File {
-    param(
-        [string[]]$Urls,
-        [string]$Destination
-    )
-    foreach ($url in $Urls) {
-        Write-Info "Downloading: $url"
+function Test-Port($port) {
+    try {
+        $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+        return $null -ne $conn
+    } catch {
+        $tcp = New-Object System.Net.Sockets.TcpClient
         try {
-            $oldProgress = $ProgressPreference
-            $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri $url -OutFile $Destination -UseBasicParsing -TimeoutSec 300
-            $ProgressPreference = $oldProgress
-            $fileSize = (Get-Item $Destination -ErrorAction SilentlyContinue).Length
-            if ($fileSize -gt 1024) {
-                $sizeMB = [math]::Round($fileSize/1MB, 1)
-                Write-Ok "Downloaded ($sizeMB MB)"
-                return $true
-            } else {
-                Write-Warn "File too small ($fileSize bytes), trying next mirror"
-                Remove-Item $Destination -Force -ErrorAction SilentlyContinue
-            }
+            $tcp.Connect("127.0.0.1", $port)
+            $tcp.Close()
+            return $true
         } catch {
-            Write-Warn "Failed: $($_.Exception.Message)"
-        }
-    }
-    Write-Err "All download mirrors failed"
-    return $false
-}
-
-function Extract-Zip {
-    param([string]$ZipPath, [string]$Destination)
-    Write-Info "Extracting..."
-    try {
-        Expand-Archive -Path $ZipPath -DestinationPath $Destination -Force -ErrorAction Stop
-        return $true
-    } catch {
-        Write-Err "Extraction failed: $($_.Exception.Message)"
-        return $false
-    }
-}
-
-function Configure-Maven {
-    param([string]$MavenHome)
-    $settingsContent = @"
-<?xml version="1.0" encoding="UTF-8"?>
-<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
-          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
-  <mirrors>
-    <mirror>
-      <id>aliyunmaven</id>
-      <mirrorOf>*</mirrorOf>
-      <name>Aliyun Maven Mirror</name>
-      <url>https://maven.aliyun.com/repository/public</url>
-    </mirror>
-  </mirrors>
-</settings>
-"@
-    # Try global settings.xml first
-    $settingsFile = Join-Path $MavenHome "conf\settings.xml"
-    try {
-        Set-Content -Path $settingsFile -Value $settingsContent -Encoding UTF8 -ErrorAction Stop
-        Write-Info "Configured Aliyun Maven mirror (global)"
-        return
-    } catch {
-        # Fallback: user-level settings.xml (~/.m2/settings.xml)
-        $m2Dir = Join-Path $env:USERPROFILE ".m2"
-        if (-not (Test-Path $m2Dir)) {
-            New-Item -ItemType Directory -Path $m2Dir -Force | Out-Null
-        }
-        $userSettings = Join-Path $m2Dir "settings.xml"
-        try {
-            Set-Content -Path $userSettings -Value $settingsContent -Encoding UTF8 -ErrorAction Stop
-            Write-Info "Configured Aliyun Maven mirror (user: $userSettings)"
-        } catch {
-            Write-Warn "Cannot write Maven settings, using default repository"
+            return $false
         }
     }
 }
 
-function Configure-Npm {
-    try {
-        $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
-        if ($npmCmd) {
-            & npm config set registry https://registry.npmmirror.com 2>&1 | Out-Null
-            Write-Info "Configured npmmirror registry"
-        }
-    } catch {}
-}
-
-# ============================================================
-# Step 1: Check / Install JDK 17
-# ============================================================
-Write-Step "Step 1/6: Checking JDK 17+..."
-
-$javaOk = $false
-$javaHome = ""
-$javaExePath = ""
-
-# Helper: Validate that a java.exe path yields a valid JAVA_HOME
-# Returns the JAVA_HOME path, or $null if invalid
-function Get-JavaHomeFromExe {
-    param([string]$ExePath)
-    if (-not $ExePath -or -not (Test-Path $ExePath)) { return $null }
-
-    # Resolve symlinks (Chocolatey/scoop shims point to real java.exe)
-    try {
-        $resolved = (Get-Item $ExePath).Target
-        if ($resolved) { $ExePath = $resolved }
-    } catch {}
-
-    # java.exe should be in a bin/ directory; JAVA_HOME is parent of bin/
-    $binPath = Split-Path $ExePath -Parent
-    $candidateHome = Split-Path $binPath -Parent
-
-    # Verify: JAVA_HOME\bin\java.exe should exist
-    if (Test-Path (Join-Path $candidateHome "bin\java.exe")) {
-        return $candidateHome
-    }
-
-    # If not, maybe java.exe is directly in JAVA_HOME (some weird installs)
-    if (Test-Path (Join-Path $ExePath "..\..\bin\java.exe")) {
-        return (Split-Path (Split-Path $ExePath -Parent) -Parent)
-    }
-
-    return $null
-}
-
-# Helper: Check if a java.exe has version 17+
-function Test-JavaVersion {
-    param([string]$ExePath)
-    try {
-        $javaVersion = (& $ExePath -version 2>&1 | Out-String).Trim()
-        $verMatch = [regex]::Match($javaVersion, '"(\d+)')
-        if ($verMatch.Success -and [int]$verMatch.Groups[1].Value -ge 17) {
-            $firstLine = ($javaVersion -split "`n")[0] -replace '^.*?:\s*', ''
-            return @{ Ok = $true; Version = $firstLine }
-        }
-        return @{ Ok = $false; Version = $javaVersion }
-    } catch {
-        return @{ Ok = $false; Version = "" }
-    }
-}
-
-# Method 1: JAVA_HOME environment variable (most reliable for Maven)
-if ($env:JAVA_HOME -and (Test-Path $env:JAVA_HOME)) {
-    $candidateJava = Join-Path $env:JAVA_HOME "bin\java.exe"
-    if (Test-Path $candidateJava) {
-        $result = Test-JavaVersion -ExePath $candidateJava
-        if ($result.Ok) {
-            Write-Ok "Found Java (JAVA_HOME): $($result.Version)"
-            $javaHome = $env:JAVA_HOME
-            $javaExePath = $candidateJava
-            $env:PATH = "$javaHome\bin;$env:PATH"
-            $javaOk = $true
-        }
-    }
-}
-
-# Method 2: Get-Command java + resolve JAVA_HOME
-if (-not $javaOk) {
-    $sysJava = Get-Command java -ErrorAction SilentlyContinue
-    if ($sysJava) {
-        $result = Test-JavaVersion -ExePath $sysJava.Source
-        if ($result.Ok) {
-            Write-Ok "Found system Java: $($result.Version)"
-            $javaExePath = $sysJava.Source
-            $javaHome = Get-JavaHomeFromExe -ExePath $javaExePath
-            if ($javaHome) {
-                $env:JAVA_HOME = $javaHome
-                $env:PATH = "$javaHome\bin;$env:PATH"
-                $javaOk = $true
-            } else {
-                Write-Warn "Found java.exe but cannot determine JAVA_HOME, trying other methods..."
-            }
-        } else {
-            if ($result.Version) { Write-Warn "System Java version too old, need 17+" }
-        }
-    }
-}
-
-# Method 3: where.exe java (find ALL java.exe locations, check each)
-if (-not $javaOk) {
-    try {
-        $whereResult = (where.exe java 2>$null | Where-Object { $_ -and $_ -notlike "*\Windows\*" })
-        foreach ($javaPath in $whereResult) {
-            $result = Test-JavaVersion -ExePath $javaPath
-            if ($result.Ok) {
-                $candidateHome = Get-JavaHomeFromExe -ExePath $javaPath
-                if ($candidateHome) {
-                    Write-Ok "Found Java: $($result.Version)"
-                    $javaExePath = $javaPath
-                    $javaHome = $candidateHome
-                    $env:JAVA_HOME = $javaHome
-                    $env:PATH = "$javaHome\bin;$env:PATH"
-                    $javaOk = $true
-                    break
-                }
-            }
-        }
-    } catch {}
-}
-
-# Method 4: Common installation paths (scan for JDK directories)
-if (-not $javaOk) {
-    $commonJavaPaths = @(
-        "C:\Program Files\Java\jdk-17*\bin\java.exe",
-        "C:\Program Files\Java\jdk-2*\bin\java.exe",
-        "C:\Program Files\Java\jdk-3*\bin\java.exe",
-        "C:\Program Files\Eclipse Adoptium\jdk-17*\bin\java.exe",
-        "C:\Program Files\Eclipse Adoptium\jdk-2*\bin\java.exe",
-        "C:\Program Files\Microsoft\jdk-17*\bin\java.exe",
-        "C:\Program Files\Microsoft\jdk-2*\bin\java.exe",
-        "C:\Program Files\Zulu\zulu-17*\bin\java.exe",
-        "C:\Program Files\Zulu\zulu-2*\bin\java.exe",
-        "C:\Program Files\Amazon Corretto\jdk17*\bin\java.exe",
-        "C:\Program Files\Amazon Corretto\jdk-2*\bin\java.exe",
-        "C:\Program Files\BellSoft\Liberica JDK*\bin\java.exe",
-        "C:\Program Files\Java\jdk*\bin\java.exe",
-        "D:\Java\jdk-17*\bin\java.exe",
-        "D:\Java\jdk-2*\bin\java.exe",
-        "D:\jdk-17*\bin\java.exe",
-        "D:\jdk-2*\bin\java.exe",
-        "$env:LOCALAPPDATA\Programs\Eclipse Adoptium\jdk-17*\bin\java.exe",
-        "$env:LOCALAPPDATA\Programs\Microsoft\jdk-17*\bin\java.exe"
-    )
-    foreach ($p in $commonJavaPaths) {
-        $resolved = Get-Item $p -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($resolved) {
-            $result = Test-JavaVersion -ExePath $resolved.FullName
-            if ($result.Ok) {
-                $candidateHome = Get-JavaHomeFromExe -ExePath $resolved.FullName
-                if ($candidateHome) {
-                    Write-Ok "Found Java: $($result.Version)"
-                    $javaExePath = $resolved.FullName
-                    $javaHome = $candidateHome
-                    $env:JAVA_HOME = $javaHome
-                    $env:PATH = "$javaHome\bin;$env:PATH"
-                    $javaOk = $true
-                    break
-                }
-            }
-        }
-    }
-}
-
-# Method 5: Check tools/jdk
-if (-not $javaOk) {
-    $localJava = Join-Path $toolsPath "jdk\bin\java.exe"
-    if (Test-Path $localJava) {
-        $result = Test-JavaVersion -ExePath $localJava
-        if ($result.Ok) {
-            Write-Ok "Found local Java: $($result.Version)"
-            $javaHome = Join-Path $toolsPath "jdk"
-            $javaExePath = $localJava
-            $env:JAVA_HOME = $javaHome
-            $env:PATH = "$javaHome\bin;$env:PATH"
-            $javaOk = $true
-        }
-    }
-}
-
-# Method 6: Auto-download JDK 17
-if (-not $javaOk) {
-    Write-Warn "JDK 17+ not found. Auto-installing from China mirror..."
-
-    $arch = "x64"
-    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "aarch64" }
-
-    $jdkUrls = @()
-    if ($arch -eq "x64") {
-        $jdkUrls += "https://mirrors.huaweicloud.com/openjdk/17.0.2/openjdk-17.0.2_windows-x64_bin.zip"
-        $jdkUrls += "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/17/jdk/x64/windows/OpenJDK17U-jdk_x64_windows_hotspot_17.0.13_11.zip"
-    }
-    $jdkUrls += "https://api.adoptium.net/v3/binary/latest/17/ga/windows/$arch/jdk/hotspot/normal/eclipse?project=jdk"
-
-    $jdkZip = Join-Path $toolsPath "jdk17.zip"
-
-    if (Download-File -Urls $jdkUrls -Destination $jdkZip) {
-        $jdkDir = Join-Path $toolsPath "jdk"
-        if (Test-Path $jdkDir) { Remove-Item $jdkDir -Recurse -Force }
-        if (Extract-Zip -ZipPath $jdkZip -Destination $toolsPath) {
-            $extracted = Get-ChildItem -Path $toolsPath -Directory | Where-Object { $_.Name -like "jdk-17*" -or $_.Name -like "jdk17*" } | Select-Object -First 1
-            if ($extracted) {
-                Rename-Item -Path $extracted.FullName -NewName "jdk" -Force
-                Remove-Item $jdkZip -Force -ErrorAction SilentlyContinue
-                $javaHome = Join-Path $toolsPath "jdk"
-                $javaExePath = Join-Path $javaHome "bin\java.exe"
-                $env:JAVA_HOME = $javaHome
-                $env:PATH = "$javaHome\bin;$env:PATH"
-                $result = Test-JavaVersion -ExePath $javaExePath
-                if ($result.Ok) {
-                    Write-Ok "Installed: $($result.Version)"
-                    $javaOk = $true
-                } else {
-                    Write-Err "JDK installed but java.exe failed"
-                }
-            } else {
-                Write-Err "Cannot find extracted JDK folder"
-            }
-        }
-    }
-
-    if (-not $javaOk) {
-        Write-Err "Auto-install failed. Please install JDK 17 manually:"
-        Write-Host "    https://mirrors.huaweicloud.com/openjdk/" -ForegroundColor Cyan
-        Write-Host "    https://adoptium.net/temurin/releases/?version=17" -ForegroundColor Cyan
-        Read-Host "Press Enter to exit"
-        exit 1
-    }
-}
-
-# Final safety check: JAVA_HOME must be set
-if ($javaOk -and -not $javaHome) {
-    Write-Err "Java found but JAVA_HOME could not be determined"
-    Write-Warn "Please set JAVA_HOME environment variable manually"
-    Start-Sleep -Seconds 3
-    exit 1
-}
-Write-Info "JAVA_HOME: $javaHome"
-
-# ============================================================
-# Step 2: Check / Install Maven
-# ============================================================
-Write-Host ""
-Write-Step "Step 2/6: Checking Maven..."
-
-$mavenOk = $false
-$mavenHome = ""
-$mavenBinPath = ""
-$mvnExePath = ""
-
-# Method 1: Get-Command (try mvn, mvn.cmd, mvn.bat)
-$sysMvn = Get-Command mvn -ErrorAction SilentlyContinue
-if (-not $sysMvn) { $sysMvn = Get-Command mvn.cmd -ErrorAction SilentlyContinue }
-if (-not $sysMvn) { $sysMvn = Get-Command mvn.bat -ErrorAction SilentlyContinue }
-
-# Method 2: where.exe
-if (-not $sysMvn) {
-    try {
-        $whereResult = (where.exe mvn 2>$null | Where-Object { $_ })
-        if ($whereResult) {
-            $firstMatch = $whereResult | Select-Object -First 1
-            $sysMvn = [PSCustomObject]@{ Source = $firstMatch }
-        }
-    } catch {}
-}
-
-# Method 3: MAVEN_HOME / M2_HOME
-if (-not $sysMvn) {
-    $mavenHomeEnv = $env:MAVEN_HOME
-    if (-not $mavenHomeEnv) { $mavenHomeEnv = $env:M2_HOME }
-    if ($mavenHomeEnv) {
-        foreach ($exeName in @("mvn.cmd", "mvn.bat", "mvn")) {
-            $candidateMvn = Join-Path $mavenHomeEnv "bin\$exeName"
-            if (Test-Path $candidateMvn) {
-                $sysMvn = [PSCustomObject]@{ Source = $candidateMvn }
-                break
-            }
-        }
-    }
-}
-
-# Method 4: Common installation paths
-if (-not $sysMvn) {
-    $commonMvnPaths = @(
-        "C:\Program Files\Apache\maven\bin\mvn.cmd",
-        "C:\Program Files\apache-maven*\bin\mvn.cmd",
-        "C:\apache-maven*\bin\mvn.cmd",
-        "C:\maven\bin\mvn.cmd",
-        "D:\maven\bin\mvn.cmd",
-        "D:\apache-maven*\bin\mvn.cmd",
-        "$env:USERPROFILE\apache-maven*\bin\mvn.cmd",
-        "$env:LOCALAPPDATA\Programs\apache-maven*\bin\mvn.cmd"
-    )
-    foreach ($p in $commonMvnPaths) {
-        $resolved = Get-Item $p -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($resolved) {
-            $sysMvn = [PSCustomObject]@{ Source = $resolved.FullName }
-            break
-        }
-    }
-}
-
-if ($sysMvn) {
-    $mvnExePath = $sysMvn.Source
-    $mavenBinPath = Split-Path $mvnExePath -Parent
-    $mavenHome = Split-Path $mavenBinPath -Parent
-
-    # Verify by checking version
-    try {
-        $mvnVersion = (& $mvnExePath --version 2>&1 | Out-String).Trim()
-        $firstLine = ($mvnVersion -split "`n")[0]
-        Write-Ok "Found Maven: $firstLine"
-        Write-Info "Path: $mvnExePath"
-    } catch {
-        Write-Ok "Found Maven at: $mvnExePath"
-    }
-
-    if ($env:PATH -notlike "*$mavenBinPath*") {
-        $env:PATH = "$mavenBinPath;$env:PATH"
-    }
-    if (-not $env:MAVEN_HOME) {
-        $env:MAVEN_HOME = $mavenHome
-    }
-    $mavenOk = $true
-}
-
-# Method 5: Check tools/maven
-if (-not $mavenOk) {
-    foreach ($exeName in @("mvn.cmd", "mvn.bat", "mvn")) {
-        $localMvn = Join-Path $toolsPath "maven\bin\$exeName"
-        if (Test-Path $localMvn) {
-            Write-Ok "Found local Maven"
-            $mavenHome = Join-Path $toolsPath "maven"
-            $mavenBinPath = Join-Path $mavenHome "bin"
-            $mvnExePath = $localMvn
-            $env:PATH = "$mavenBinPath;$env:PATH"
-            $env:MAVEN_HOME = $mavenHome
-            $mavenOk = $true
-            break
-        }
-    }
-}
-
-# Method 6: Auto-download Maven
-if (-not $mavenOk) {
-    Write-Warn "Maven not found. Auto-installing from China mirror..."
-
-    # Maven 3.9.11 (latest stable). Mirrors: Huawei, Tsinghua, Aliyun, Official
-    $mvnUrls = @(
-        "https://mirrors.huaweicloud.com/apache/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.zip",
-        "https://dlcdn.apache.org/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.zip",
-        "https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip"
-    )
-    $mvnZip = Join-Path $toolsPath "maven.zip"
-
-    if (Download-File -Urls $mvnUrls -Destination $mvnZip) {
-        $mvnDir = Join-Path $toolsPath "maven"
-        if (Test-Path $mvnDir) { Remove-Item $mvnDir -Recurse -Force }
-        if (Extract-Zip -ZipPath $mvnZip -Destination $toolsPath) {
-            $extracted = Get-ChildItem -Path $toolsPath -Directory | Where-Object { $_.Name -like "apache-maven-*" } | Select-Object -First 1
-            if ($extracted) {
-                Rename-Item -Path $extracted.FullName -NewName "maven" -Force
-                Remove-Item $mvnZip -Force -ErrorAction SilentlyContinue
-                $mavenHome = Join-Path $toolsPath "maven"
-                $mavenBinPath = Join-Path $mavenHome "bin"
-                $mvnExePath = Join-Path $mavenBinPath "mvn.cmd"
-                $env:PATH = "$mavenBinPath;$env:PATH"
-                $env:MAVEN_HOME = $mavenHome
-                Configure-Maven -MavenHome $mavenHome
-                Write-Ok "Installed: Maven (with Aliyun mirror)"
-                $mavenOk = $true
-            }
-        }
-    }
-
-    if (-not $mavenOk) {
-        Write-Err "Auto-install failed. Please install Maven manually:"
-        Write-Host "    https://maven.apache.org/download.cgi" -ForegroundColor Cyan
-        Read-Host "Press Enter to exit"
-        exit 1
-    }
-} elseif ($mavenHome -and (Test-Path (Join-Path $mavenHome "conf\settings.xml"))) {
-    # Ensure Aliyun mirror is configured for existing Maven
-    $settingsFile = Join-Path $mavenHome "conf\settings.xml"
-    $settingsContent = Get-Content $settingsFile -Raw -ErrorAction SilentlyContinue
-    if ($settingsContent -notmatch "aliyun") {
-        Configure-Maven -MavenHome $mavenHome
-    }
-}
-
-# ============================================================
-# Step 3: Check / Install Node.js
-# ============================================================
-Write-Host ""
-Write-Step "Step 3/6: Checking Node.js 18+..."
-
-$nodeOk = $false
-$nodeExePath = ""
-
-# Method 1: Get-Command node
-$sysNode = Get-Command node -ErrorAction SilentlyContinue
-if ($sysNode) {
-    try {
-        $nodeVersion = (& node --version 2>&1 | Out-String).Trim()
-        $verMatch = [regex]::Match($nodeVersion, 'v(\d+)')
-        if ($verMatch.Success -and [int]$verMatch.Groups[1].Value -ge 18) {
-            Write-Ok "Found system Node.js: $nodeVersion"
-            $nodeExePath = $sysNode.Source
-            $nodeOk = $true
-        } else {
-            Write-Warn "System Node.js version too old, need 18+"
-        }
-    } catch {
-        Write-Warn "System node command failed"
-    }
-}
-
-# Method 2: where.exe
-if (-not $nodeOk) {
-    try {
-        $whereResult = (where.exe node 2>$null | Where-Object { $_ })
-        if ($whereResult) {
-            $firstMatch = $whereResult | Select-Object -First 1
-            try {
-                $nodeVersion = (& $firstMatch --version 2>&1 | Out-String).Trim()
-                $verMatch = [regex]::Match($nodeVersion, 'v(\d+)')
-                if ($verMatch.Success -and [int]$verMatch.Groups[1].Value -ge 18) {
-                    Write-Ok "Found Node.js: $nodeVersion"
-                    $nodeExePath = $firstMatch
-                    $nodeDir = Split-Path $nodeExePath -Parent
-                    $env:PATH = "$nodeDir;$env:PATH"
-                    $nodeOk = $true
-                }
-            } catch {}
-        }
-    } catch {}
-}
-
-# Method 3: Common installation paths
-if (-not $nodeOk) {
-    $commonNodePaths = @(
-        "C:\Program Files\nodejs\node.exe",
-        "C:\Program Files (x86)\nodejs\node.exe",
-        "$env:LOCALAPPDATA\Programs\nodejs\node.exe",
-        "$env:APPDATA\npm\node.exe",
-        "D:\nodejs\node.exe"
-    )
-    foreach ($p in $commonNodePaths) {
-        if (Test-Path $p) {
-            try {
-                $nodeVersion = (& $p --version 2>&1 | Out-String).Trim()
-                $verMatch = [regex]::Match($nodeVersion, 'v(\d+)')
-                if ($verMatch.Success -and [int]$verMatch.Groups[1].Value -ge 18) {
-                    Write-Ok "Found Node.js: $nodeVersion"
-                    $nodeExePath = $p
-                    $nodeDir = Split-Path $nodeExePath -Parent
-                    $env:PATH = "$nodeDir;$env:PATH"
-                    $nodeOk = $true
-                    break
-                }
-            } catch {}
-        }
-    }
-}
-
-# Method 4: Check tools/nodejs
-if (-not $nodeOk) {
-    $localNode = Join-Path $toolsPath "nodejs\node.exe"
-    if (Test-Path $localNode) {
-        try {
-            $nodeVersion = (& $localNode --version 2>&1 | Out-String).Trim()
-            $verMatch = [regex]::Match($nodeVersion, 'v(\d+)')
-            if ($verMatch.Success -and [int]$verMatch.Groups[1].Value -ge 18) {
-                Write-Ok "Found local Node.js: $nodeVersion"
-                $nodeExePath = $localNode
-                $nodeHome = Join-Path $toolsPath "nodejs"
-                $env:PATH = "$nodeHome;$env:PATH"
-                $nodeOk = $true
-            }
-        } catch {}
-    }
-}
-
-# Method 5: Auto-download Node.js
-if (-not $nodeOk) {
-    Write-Warn "Node.js 18+ not found. Auto-installing from China mirror..."
-
-    $nodeArch = "x64"
-    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $nodeArch = "arm64" }
-
-    # Get latest LTS version
-    $ltsVersion = $null
-    $versionApis = @(
-        "https://registry.npmmirror.com/-/binary/node/index.json",
-        "https://nodejs.org/dist/index.json"
-    )
-    foreach ($apiUrl in $versionApis) {
-        try {
-            $nodeData = Invoke-RestMethod -Uri $apiUrl -TimeoutSec 15
-            $ltsVersion = ($nodeData | Where-Object { $_.lts -ne $false } | Select-Object -First 1).version
-            if ($ltsVersion) { break }
-        } catch {}
-    }
-    if (-not $ltsVersion) { $ltsVersion = "v22.11.0" }
-
-    $nodeUrls = @(
-        "https://registry.npmmirror.com/-/binary/node/$ltsVersion/node-$ltsVersion-win-$nodeArch.zip",
-        "https://nodejs.org/dist/$ltsVersion/node-$ltsVersion-win-$nodeArch.zip"
-    )
-    $nodeZip = Join-Path $toolsPath "nodejs.zip"
-
-    if (Download-File -Urls $nodeUrls -Destination $nodeZip) {
-        $nodeDir = Join-Path $toolsPath "nodejs"
-        if (Test-Path $nodeDir) { Remove-Item $nodeDir -Recurse -Force }
-        if (Extract-Zip -ZipPath $nodeZip -Destination $toolsPath) {
-            $extracted = Get-ChildItem -Path $toolsPath -Directory | Where-Object { $_.Name -like "node-v*" } | Select-Object -First 1
-            if ($extracted) {
-                Rename-Item -Path $extracted.FullName -NewName "nodejs" -Force
-                Remove-Item $nodeZip -Force -ErrorAction SilentlyContinue
-                $nodeHome = Join-Path $toolsPath "nodejs"
-                $nodeExePath = Join-Path $nodeHome "node.exe"
-                $env:PATH = "$nodeHome;$env:PATH"
-                try {
-                    $nodeVersion = (& $nodeExePath --version 2>&1 | Out-String).Trim()
-                    Write-Ok "Installed: Node.js $nodeVersion"
-                    $nodeOk = $true
-                } catch {
-                    Write-Err "Node.js installed but node.exe failed"
-                }
-            }
-        }
-    }
-
-    if (-not $nodeOk) {
-        Write-Err "Auto-install failed. Please install Node.js manually:"
-        Write-Host "    https://registry.npmmirror.com/binary.html?path=node/" -ForegroundColor Cyan
-        Write-Host "    https://nodejs.org/" -ForegroundColor Cyan
-        Read-Host "Press Enter to exit"
-        exit 1
-    }
-}
-
-# ============================================================
-# Step 4: Install frontend dependencies
-# ============================================================
-Write-Host ""
-Write-Step "Step 4/6: Installing frontend dependencies..."
-
-Configure-Npm
-
-$nodeModules = Join-Path $frontendPath "node_modules"
-if (-not (Test-Path $nodeModules)) {
-    Write-Info "Running npm install (first time may take a few minutes)..."
-    Push-Location $frontendPath
-    try {
-        $npmResult = & npm install --registry=https://registry.npmmirror.com 2>&1
-        $npmExitCode = $LASTEXITCODE
-        Pop-Location
-        if ($npmExitCode -eq 0) {
-            Write-Ok "Frontend dependencies installed"
-        } else {
-            Write-Warn "npm install had warnings (exit code: $npmExitCode)"
-            Write-Info "Last output: $($npmResult | Select-Object -Last 3)"
-        }
-    } catch {
-        Pop-Location
-        Write-Err "npm install failed: $($_.Exception.Message)"
-        Read-Host "Press Enter to exit"
-        exit 1
-    }
-} else {
-    Write-Ok "Dependencies already installed"
-}
-
-# ============================================================
-# Step 5: Kill processes on ports 8080 and 5173
-# ============================================================
-Write-Host ""
-Write-Step "Step 5/6: Checking ports..."
-
-foreach ($port in @(8080, 5173)) {
+function Get-PortProcessId($port) {
     try {
         $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
         if ($conn) {
-            $procIds = $conn.OwningProcess | Where-Object { $_ -ne 0 -and $_ -ne 4 } | Select-Object -Unique
-            foreach ($p in $procIds) {
-                $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
-                if ($proc) {
-                    Write-Warn "Port $port in use by $($proc.Name) (PID: $p), stopping..."
-                    Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
-                }
-            }
-            Start-Sleep -Seconds 2
+            return $conn.OwningProcess | Select-Object -First 1
         }
-    } catch {
-        # Get-NetTCPConnection may fail on some systems, use netstat as fallback
+    } catch {}
+    return $null
+}
+
+function Stop-PortProcess($port) {
+    $procId = Get-PortProcessId $port
+    if ($procId) {
         try {
-            $netstatResult = (netstat -ano | Select-String ":$port\s.*LISTENING")
-            if ($netstatResult) {
-                foreach ($line in $netstatResult) {
-                    $parts = $line -split '\s+'
-                    $pidStr = $parts[-1]
-                    if ($pidStr -match '^\d+$' -and [int]$pidStr -ne 0 -and [int]$pidStr -ne 4) {
-                        $proc = Get-Process -Id $pidStr -ErrorAction SilentlyContinue
-                        if ($proc) {
-                            Write-Warn "Port $port in use by $($proc.Name) (PID: $pidStr), stopping..."
-                            Stop-Process -Id $pidStr -Force -ErrorAction SilentlyContinue
-                        }
-                    }
-                }
+            $proc = Get-Process -Id $procId -ErrorAction Stop
+            $procName = $proc.ProcessName
+            # 只自动关闭 java/node 相关进程，避免误杀其他程序
+            if ($procName -match 'java|node|mvn') {
+                Write-Warn "端口 $port 被进程 $procName (PID: $procId) 占用，正在关闭..."
+                Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
+                if (-not (Test-Port $port)) {
+                    Write-OK "已关闭占用进程 $procName，端口 $port 已释放"
+                    return $true
+                } else {
+                    return $false
+                }
+            } else {
+                Write-Warn "端口 $port 被进程 $procName (PID: $procId) 占用（非本项目进程）"
+                return $false
+            }
+        } catch {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Find-AvailablePort($startPort) {
+    $port = $startPort
+    while ($port -lt ($startPort + 100)) {
+        if (-not (Test-Port $port)) {
+            return $port
+        }
+        $port++
+    }
+    return $startPort
+}
+
+function Get-JavaVersion {
+    $oldEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & java -version 2>&1 | Out-String
+        if ($output -match 'version "(\d+)') {
+            $ver = [int]$matches[1]
+            # Java 8 的版本号是 1.8，需要特殊处理
+            if ($output -match 'version "1\.(\d+)') {
+                $ver = [int]$matches[1]
+            }
+            return $ver
+        }
+    } catch {} finally {
+        $ErrorActionPreference = $oldEAP
+    }
+    return 0
+}
+
+# ========== 检查管理员权限 ==========
+function Test-Administrator {
+    $user = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($user)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# ========== 自动安装函数 ==========
+
+function Install-Java {
+    Write-Step "正在安装 JDK 17 ..."
+
+    # 优先使用 winget（Windows 10 1809+ 自带）
+    if (Test-Command "winget") {
+        Write-Host "  使用 winget 安装 Microsoft OpenJDK 17..."
+        try {
+            winget install --id Microsoft.OpenJDK.17 --accept-source-agreements --accept-package-agreements --silent
+            # 刷新环境变量
+            $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-17"
+            $env:Path = "$env:JAVA_HOME\bin;$env:Path"
+            if (Test-Command "java") {
+                Write-OK "JDK 17 安装成功（winget）"
+                return $true
+            }
+        } catch {
+            Write-Warn "winget 安装失败，尝试手动下载..."
+        }
+    }
+
+    # 手动下载安装
+    $jdkUrl = "https://download.microsoft.com/openjdk/17.0.13/openjdk-17.0.13_windows-x64_bin.zip"
+    $jdkZip = Join-Path $env:TEMP "openjdk-17.zip"
+    $jdkDir = "C:\Program Files\Microsoft\jdk-17"
+
+    Write-Host "  下载 OpenJDK 17..."
+    try {
+        # 设置 TLS 1.2
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkZip -UseBasicParsing -TimeoutSec 120
+    } catch {
+        Write-Err "下载 JDK 失败: $($_.Exception.Message)"
+        Write-Host ""
+        Write-Host "  请手动安装 JDK 17+:" -ForegroundColor Yellow
+        Write-Host "  下载地址: https://learn.microsoft.com/java/openjdk/"
+        Write-Host "  或使用国内镜像: https://mirrors.tuna.tsinghua.edu.cn/Adoptium/"
+        return $false
+    }
+
+    Write-Host "  解压安装..."
+    try {
+        if (Test-Path $jdkDir) { Remove-Item $jdkDir -Recurse -Force }
+        Expand-Archive -Path $jdkZip -DestinationPath "C:\Program Files\Microsoft" -Force
+        # 重命名目录
+        $extracted = Get-ChildItem "C:\Program Files\Microsoft" -Directory -Filter "jdk-17*"
+        if ($extracted) {
+            Rename-Item $extracted.FullName $jdkDir
+        }
+        Remove-Item $jdkZip -Force
+    } catch {
+        Write-Err "解压 JDK 失败: $($_.Exception.Message)"
+        return $false
+    }
+
+    # 设置环境变量
+    $env:JAVA_HOME = $jdkDir
+    $env:Path = "$jdkDir\bin;$env:Path"
+    [Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkDir, "Machine")
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($machinePath -notlike "*$jdkDir\bin*") {
+        [Environment]::SetEnvironmentVariable("Path", "$jdkDir\bin;$machinePath", "Machine")
+    }
+
+    if (Test-Command "java") {
+        Write-OK "JDK 17 安装成功"
+        return $true
+    }
+    Write-Err "JDK 安装后仍无法使用"
+    return $false
+}
+
+function Install-Maven {
+    Write-Step "正在安装 Maven 3.9 ..."
+
+    $mavenUrl = "https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip"
+    # 国内备用下载地址
+    $mavenUrlCn = "https://mirrors.tuna.tsinghua.edu.cn/apache/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip"
+    $mavenZip = Join-Path $env:TEMP "apache-maven-3.9.9-bin.zip"
+    $mavenDir = "C:\Program Files\Apache\maven"
+
+    Write-Host "  下载 Maven 3.9.9（国内镜像）..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    try {
+        Invoke-WebRequest -Uri $mavenUrlCn -OutFile $mavenZip -UseBasicParsing -TimeoutSec 120
+    } catch {
+        Write-Warn "国内镜像下载失败，尝试官方地址..."
+        try {
+            Invoke-WebRequest -Uri $mavenUrl -OutFile $mavenZip -UseBasicParsing -TimeoutSec 120
+        } catch {
+            Write-Err "下载 Maven 失败: $($_.Exception.Message)"
+            Write-Host "  请手动安装 Maven 3.6+:" -ForegroundColor Yellow
+            Write-Host "  下载地址: https://maven.apache.org/download.cgi"
+            return $false
+        }
+    }
+
+    Write-Host "  解压安装..."
+    try {
+        $tempExtract = Join-Path $env:TEMP "maven-extract"
+        if (Test-Path $tempExtract) { Remove-Item $tempExtract -Recurse -Force }
+        Expand-Archive -Path $mavenZip -DestinationPath $tempExtract -Force
+        $extractedDir = Get-ChildItem $tempExtract -Directory | Select-Object -First 1
+        if (Test-Path $mavenDir) { Remove-Item $mavenDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $mavenDir -Force | Out-Null
+        Copy-Item "$($extractedDir.FullName)\*" $mavenDir -Recurse -Force
+        Remove-Item $tempExtract -Recurse -Force
+        Remove-Item $mavenZip -Force
+    } catch {
+        Write-Err "解压 Maven 失败: $($_.Exception.Message)"
+        return $false
+    }
+
+    # 设置环境变量
+    $env:Path = "$mavenDir\bin;$env:Path"
+    [Environment]::SetEnvironmentVariable("MAVEN_HOME", $mavenDir, "Machine")
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($machinePath -notlike "*$mavenDir\bin*") {
+        [Environment]::SetEnvironmentVariable("Path", "$mavenDir\bin;$machinePath", "Machine")
+    }
+
+    if (Test-Command "mvn") {
+        Write-OK "Maven 3.9.9 安装成功"
+        return $true
+    }
+    Write-Err "Maven 安装后仍无法使用"
+    return $false
+}
+
+function Install-Node {
+    Write-Step "正在安装 Node.js 20 LTS ..."
+
+    # 优先使用 winget
+    if (Test-Command "winget") {
+        Write-Host "  使用 winget 安装 Node.js LTS..."
+        try {
+            winget install --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent
+            # 刷新环境变量
+            $nodePath = "C:\Program Files\nodejs"
+            $env:Path = "$nodePath;$env:Path"
+            if (Test-Command "node") {
+                Write-OK "Node.js 安装成功（winget）"
+                return $true
+            }
+        } catch {
+            Write-Warn "winget 安装失败，尝试手动下载..."
+        }
+    }
+
+    # 手动下载安装
+    $nodeUrl = "https://npmmirror.com/mirrors/node/v20.18.1/node-v20.18.1-win-x64.zip"
+    $nodeZip = Join-Path $env:TEMP "node-v20.zip"
+    $nodeDir = "C:\Program Files\nodejs"
+
+    Write-Host "  下载 Node.js 20（国内镜像 npmmirror.com）..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    try {
+        Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeZip -UseBasicParsing -TimeoutSec 180
+    } catch {
+        Write-Err "下载 Node.js 失败: $($_.Exception.Message)"
+        Write-Host "  请手动安装 Node.js 18+:" -ForegroundColor Yellow
+        Write-Host "  下载地址: https://nodejs.org/"
+        Write-Host "  国内镜像: https://npmmirror.com/mirrors/node/"
+        return $false
+    }
+
+    Write-Host "  解压安装..."
+    try {
+        $tempExtract = Join-Path $env:TEMP "node-extract"
+        if (Test-Path $tempExtract) { Remove-Item $tempExtract -Recurse -Force }
+        Expand-Archive -Path $nodeZip -DestinationPath $tempExtract -Force
+        $extractedDir = Get-ChildItem $tempExtract -Directory | Select-Object -First 1
+        if (Test-Path $nodeDir) { Remove-Item $nodeDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $nodeDir -Force | Out-Null
+        Copy-Item "$($extractedDir.FullName)\*" $nodeDir -Recurse -Force
+        Remove-Item $tempExtract -Recurse -Force
+        Remove-Item $nodeZip -Force
+    } catch {
+        Write-Err "解压 Node.js 失败: $($_.Exception.Message)"
+        return $false
+    }
+
+    # 设置环境变量
+    $env:Path = "$nodeDir;$env:Path"
+    [Environment]::SetEnvironmentVariable("NODE_HOME", $nodeDir, "Machine")
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($machinePath -notlike "*$nodeDir*") {
+        [Environment]::SetEnvironmentVariable("Path", "$nodeDir;$machinePath", "Machine")
+    }
+
+    if (Test-Command "node") {
+        Write-OK "Node.js 20 安装成功"
+        return $true
+    }
+    Write-Err "Node.js 安装后仍无法使用"
+    return $false
+}
+
+# ========== 镜像配置函数 ==========
+
+function Setup-MavenMirror {
+    Write-Step "配置 Maven 阿里云镜像..."
+
+    # 确保项目自带配置存在
+    if (-not (Test-Path $localMavenSettings)) {
+        Write-Warn "项目 maven-settings.xml 不存在，跳过"
+        return
+    }
+
+    # 复制到用户 .m2 目录
+    if (-not (Test-Path $m2Path)) {
+        New-Item -ItemType Directory -Path $m2Path -Force | Out-Null
+    }
+
+    # 检查是否已配置或是否需要更新
+    $needUpdate = $true
+    if (Test-Path $m2Settings) {
+        $existingContent = Get-Content $m2Settings -Raw -ErrorAction SilentlyContinue
+        $newContent = Get-Content $localMavenSettings -Raw
+        if ($existingContent -eq $newContent) {
+            $needUpdate = $false
+        }
+    }
+
+    if ($needUpdate) {
+        Copy-Item $localMavenSettings $m2Settings -Force
+        Write-OK "Maven 阿里云镜像已配置到 $m2Settings"
+    } else {
+        Write-OK "Maven 阿里云镜像已存在，跳过"
+    }
+}
+
+function Setup-NpmMirror {
+    Write-Step "配置 npm 国内镜像源..."
+
+    try {
+        # 设置淘宝镜像
+        & npm config set registry https://registry.npmmirror.com
+        & npm config set sass_binary_site https://npmmirror.com/mirrors/node-sass
+        & npm config set electron_mirror https://npmmirror.com/mirrors/electron/
+        & npm config set puppeteer_download_host https://npmmirror.com/mirrors
+        Write-OK "npm 镜像已设置为 registry.npmmirror.com"
+    } catch {
+        Write-Warn "npm 镜像配置失败，将使用默认源"
+    }
+}
+
+# ========== 主流程 ==========
+
+Clear-Host
+Write-Host "==========================================" -ForegroundColor DarkGreen
+Write-Host "      桂林学院新闻中心 - 一键启动" -ForegroundColor Green
+Write-Host "      Guilin University News Center" -ForegroundColor Green
+Write-Host "==========================================" -ForegroundColor DarkGreen
+Write-Host ""
+
+# 检查管理员权限（已在脚本开头自动提权，此处仅做提示）
+Write-Host "  管理员权限: 已确认" -ForegroundColor Gray
+Write-Host ""
+
+# [1/7] 检查并处理端口占用
+Write-Step "[1/7] 检查端口占用..."
+
+# 后端端口处理
+if (Test-Port $backendPort) {
+    Write-Warn "后端端口 $backendPort 被占用"
+    $cleaned = Stop-PortProcess $backendPort
+    if (-not $cleaned) {
+        # 无法清理，自动寻找可用端口
+        $newPort = Find-AvailablePort ($backendPort + 1)
+        Write-Warn "自动切换后端端口: $backendPort -> $newPort"
+        $backendPort = $newPort
+    }
+}
+Write-OK "后端端口: $backendPort"
+
+# 前端端口处理
+if (Test-Port $frontendPort) {
+    Write-Warn "前端端口 $frontendPort 被占用"
+    $cleaned = Stop-PortProcess $frontendPort
+    if (-not $cleaned) {
+        # 无法清理，自动寻找可用端口
+        $newPort = Find-AvailablePort ($frontendPort + 1)
+        Write-Warn "自动切换前端端口: $frontendPort -> $newPort"
+        $frontendPort = $newPort
+    }
+}
+Write-OK "前端端口: $frontendPort"
+
+# [2/7] 检查/安装 Java
+Write-Step "[2/7] 检查 Java 环境..."
+if (Test-Command "java") {
+    $javaVersionStr = ""
+    $oldEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $javaVersionStr = (& java -version 2>&1 | Out-String).Split("`n")[0].Trim()
+    } catch {}
+    $ErrorActionPreference = $oldEAP
+    $javaVer = Get-JavaVersion
+    if ($javaVer -ge 11) {
+        Write-OK "Java 已安装: $javaVersionStr"
+    } else {
+        # 版本较低但可能仍可用，只警告不退出
+        Write-Warn "Java 版本较低: $javaVersionStr（建议 11+，将尝试继续运行）"
+    }
+} else {
+    Write-Warn "未检测到 Java"
+    if ($isAdmin) {
+        if (Install-Java) { } else { Read-Host "按 Enter 键退出"; exit 1 }
+    } else {
+        Write-Host "  请以管理员身份运行脚本以自动安装，或手动安装 JDK 11+" -ForegroundColor Yellow
+        Read-Host "按 Enter 键退出"
+        exit 1
+    }
+}
+
+# [3/7] 检查/安装 Maven
+Write-Step "[3/7] 检查 Maven 环境..."
+if (Test-Command "mvn") {
+    $mvnVersion = ""
+    $oldEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $mvnVersion = (& mvn -version 2>&1 | Out-String).Split("`n")[0].Trim()
+    } catch {}
+    $ErrorActionPreference = $oldEAP
+    Write-OK "Maven 已安装: $mvnVersion"
+} else {
+    Write-Warn "未检测到 Maven"
+    if ($isAdmin) {
+        if (Install-Maven) { } else { Read-Host "按 Enter 键退出"; exit 1 }
+    } else {
+        Write-Host "  请以管理员身份运行脚本以自动安装，或手动安装 Maven 3.6+" -ForegroundColor Yellow
+        Read-Host "按 Enter 键退出"
+        exit 1
+    }
+}
+
+# [4/7] 检查/安装 Node.js
+Write-Step "[4/7] 检查 Node.js 环境..."
+if (Test-Command "node") {
+    $nodeVersion = & node -version
+    Write-OK "Node.js 已安装: $nodeVersion"
+    if ($nodeVersion -match 'v(\d+)') {
+        $nodeVer = [int]$matches[1]
+        if ($nodeVer -lt 16) {
+            # 版本较低但可能仍可用，只警告不退出
+            Write-Warn "Node.js 版本较低: $nodeVersion（建议 16+，将尝试继续运行）"
+        }
+    }
+} else {
+    Write-Warn "未检测到 Node.js"
+    if ($isAdmin) {
+        if (Install-Node) { } else { Read-Host "按 Enter 键退出"; exit 1 }
+    } else {
+        Write-Host "  请以管理员身份运行脚本以自动安装，或手动安装 Node.js 16+" -ForegroundColor Yellow
+        Read-Host "按 Enter 键退出"
+        exit 1
+    }
+}
+
+# [5/7] 配置国内镜像源
+Write-Step "[5/7] 配置国内镜像源（加速下载）..."
+Setup-MavenMirror
+Setup-NpmMirror
+
+# [6/7] 安装前端依赖
+Write-Step "[6/7] 安装前端依赖..."
+$nodeModules = Join-Path $frontendPath "node_modules"
+if (-not (Test-Path $nodeModules)) {
+    Write-Host "  首次运行，正在安装依赖（使用国内镜像）..."
+    Push-Location $frontendPath
+    try {
+        & npm install --registry=https://registry.npmmirror.com 2>&1 | ForEach-Object {
+            if ($_ -match 'added|removed|changed|npm warn') { Write-Host "    $_" }
+        }
+        Write-OK "前端依赖安装完成"
+    } catch {
+        Write-Err "前端依赖安装失败: $($_.Exception.Message)"
+        Write-Host "  请尝试手动运行: cd frontend && npm install" -ForegroundColor Yellow
+        Pop-Location
+        Read-Host "按 Enter 键退出"
+        exit 1
+    }
+    Pop-Location
+} else {
+    Write-OK "前端依赖已存在，跳过安装"
+}
+
+# [7/7] 启动服务
+Write-Step "[7/7] 启动服务..."
+
+# 启动前先清理可能残留的旧进程（避免端口占用）
+Write-Host "  清理残留进程..." -ForegroundColor Gray
+Get-NetTCPConnection -LocalPort $backendPort -State Listen -ErrorAction SilentlyContinue | ForEach-Object {
+    Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+}
+Get-NetTCPConnection -LocalPort $frontendPort -State Listen -ErrorAction SilentlyContinue | ForEach-Object {
+    Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 1
+
+# 启动后端（使用动态端口）
+Write-Host "  启动后端服务 (端口 $backendPort)..." -ForegroundColor White
+# 清理旧的 Tomcat 配置避免冲突
+$tomcatConf = Join-Path $rootPath "target\tomcat"
+if (Test-Path $tomcatConf) {
+    Remove-Item $tomcatConf -Recurse -Force -ErrorAction SilentlyContinue
+}
+$backendCmd = "cd /d `"$rootPath`" && mvn tomcat7:run -s `"$m2Settings`" -Dmaven.tomcat.port=$backendPort"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title Guilin-News-Backend && $backendCmd"
+Write-Host "  等待后端启动..." -ForegroundColor White
+Start-Sleep -Seconds 12
+
+# 启动前端（通过环境变量传递端口）
+Write-Host "  启动前端服务 (端口 $frontendPort)..." -ForegroundColor White
+$frontendCmd = "cd /d `"$frontendPath`" && set VITE_BACKEND_PORT=$backendPort && set VITE_FRONTEND_PORT=$frontendPort && npm run dev -- --port $frontendPort --strictPort"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title Guilin-News-Frontend && $frontendCmd"
+Start-Sleep -Seconds 3
+
+# 等待服务就绪并自动打开浏览器
+Write-Host ""
+Write-Host "  等待服务完全启动..." -ForegroundColor White
+$maxWait = 90
+$backendReady = $false
+$frontendReady = $false
+$proxyReady = $false
+
+for ($i = 0; $i -lt $maxWait; $i++) {
+    Start-Sleep -Seconds 1
+    # 检测后端是否真正就绪（HTTP 请求而非仅端口检测）
+    if (-not $backendReady) {
+        try {
+            $r = Invoke-WebRequest -Uri "http://localhost:$backendPort/guilin-news/api/news?type=xxxw" -UseBasicParsing -TimeoutSec 2
+            if ($r.StatusCode -eq 200) {
+                $backendReady = $true
+                Write-OK "后端服务已就绪"
             }
         } catch {}
     }
-}
-Write-Ok "Ports ready"
-
-# ============================================================
-# Step 6: Start servers
-# ============================================================
-Write-Host ""
-Write-Step "Step 6/6: Starting servers..."
-
-# --- Build backend batch script with explicit paths ---
-Write-Info "Starting backend (port 8080)..."
-$backendBatContent = "@echo off`r`n"
-$backendBatContent += "chcp 65001 >nul 2>&1`r`n"
-$backendBatContent += "title Guilin News - Backend (Maven Tomcat)`r`n"
-$backendBatContent += "cd /d `"$rootPath`"`r`n"
-if ($javaHome) {
-    $backendBatContent += "set `"`JAVA_HOME=$javaHome`"`r`n"
-    $backendBatContent += "set `"`PATH=%JAVA_HOME%\bin;%PATH%`"`r`n"
-}
-if ($mavenBinPath) {
-    $backendBatContent += "set `"`PATH=$mavenBinPath;%PATH%`"`r`n"
-}
-if ($env:MAVEN_HOME) {
-    $backendBatContent += "set `"`MAVEN_HOME=$env:MAVEN_HOME`"`r`n"
-}
-# Validate JAVA_HOME before running Maven
-$backendBatContent += "if not defined JAVA_HOME (`r`n"
-$backendBatContent += "  echo ERROR: JAVA_HOME is not set!`r`n"
-$backendBatContent += "  echo Please install JDK 17+ and set JAVA_HOME`r`n"
-$backendBatContent += "  pause`r`n"
-$backendBatContent += "  exit /b 1`r`n"
-$backendBatContent += ")`r`n"
-$backendBatContent += "if not exist `"%JAVA_HOME%\bin\java.exe`" (`r`n"
-$backendBatContent += "  echo ERROR: JAVA_HOME=%JAVA_HOME% is invalid (java.exe not found)`r`n"
-$backendBatContent += "  pause`r`n"
-$backendBatContent += "  exit /b 1`r`n"
-$backendBatContent += ")`r`n"
-$backendBatContent += "echo JAVA_HOME=%JAVA_HOME%`r`n"
-$backendBatContent += "echo Starting Maven Tomcat...`r`n"
-$backendBatContent += "echo.`r`n"
-$backendBatContent += "call mvn tomcat7:run`r`n"
-$backendBatContent += "echo.`r`n"
-$backendBatContent += "echo ========================================`r`n"
-$backendBatContent += "echo Backend has stopped`r`n"
-$backendBatContent += "echo Check the messages above for any errors`r`n"
-$backendBatContent += "echo ========================================`r`n"
-$backendBatContent += "pause`r`n"
-
-$backendBat = Join-Path $env:TEMP "guilin_backend.bat"
-Set-Content -Path $backendBat -Value $backendBatContent -Encoding Default -Force
-Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "`"$backendBat`"" -WindowStyle Normal
-Write-Ok "Backend starting..."
-
-# --- Wait for backend port 8080 ---
-Write-Info "Waiting for backend to be ready (first-time build may take several minutes)..."
-$backendReady = $false
-$maxWaitSeconds = 360
-$waitedSeconds = 0
-$lastProgressSeconds = 0
-$noJavaCount = 0
-
-while ($waitedSeconds -lt $maxWaitSeconds) {
-    Start-Sleep -Seconds 3
-    $waitedSeconds += 3
-
-    # Check if port 8080 is listening
-    $portListening = $false
-    try {
-        $conn = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
-        if ($conn) {
-            $realProc = $conn.OwningProcess | Where-Object { $_ -ne 0 -and $_ -ne 4 } | Select-Object -First 1
-            if ($realProc) { $portListening = $true }
-        }
-    } catch {
-        # Fallback: use netstat
+    # 检测前端是否就绪
+    if (-not $frontendReady -and (Test-Port $frontendPort)) {
+        $frontendReady = $true
+        Write-OK "前端服务已就绪"
+    }
+    # 检测前端代理是否真正可用（通过前端端口访问 API）
+    if ($backendReady -and $frontendReady -and -not $proxyReady) {
         try {
-            $netstatCheck = (netstat -ano 2>$null | Select-String ":8080\s.*LISTENING")
-            if ($netstatCheck) { $portListening = $true }
+            $r = Invoke-WebRequest -Uri "http://localhost:$frontendPort/api/news?type=xxxw" -UseBasicParsing -TimeoutSec 3
+            if ($r.StatusCode -eq 200) {
+                $proxyReady = $true
+                Write-OK "前端代理已就绪"
+            }
         } catch {}
     }
-
-    if ($portListening) {
-        $backendReady = $true
+    if ($proxyReady) {
         break
     }
-
-    # Check if Java process is running (compiling or running)
-    # Note: process may be 'java' or 'javaw'
-    $javaProcs = Get-Process -Name java, javaw -ErrorAction SilentlyContinue
-    if ($javaProcs) {
-        $noJavaCount = 0
-    } else {
-        $noJavaCount++
-        # If no Java process for 30 seconds (10 checks), backend likely crashed
-        if ($noJavaCount -ge 10 -and $waitedSeconds -gt 30) {
-            Write-Err "No Java process detected for 30s, backend may have failed"
-            Write-Err "Please check the backend command window for errors"
-            break
-        }
-    }
-
-    # Show progress every 15 seconds
-    if ($waitedSeconds - $lastProgressSeconds -ge 15) {
-        $lastProgressSeconds = $waitedSeconds
-        if ($javaProcs) {
-            Write-Info "Still building/starting... ($waitedSeconds s, Java running)"
-        } else {
-            Write-Info "Still waiting... ($waitedSeconds s)"
-        }
-    }
 }
 
-if ($backendReady) {
-    Write-Ok "Backend ready! (took $waitedSeconds s)"
+# 输出结果
+Write-Host ""
+Write-Host "==========================================" -ForegroundColor DarkGreen
+if ($proxyReady) {
+    Write-Host "  所有服务启动成功!" -ForegroundColor Green
 } else {
-    Write-Warn "Backend not ready, starting frontend anyway..."
-    Write-Warn "(If backend has errors, check the backend command window)"
+    Write-Host "  服务启动中，请稍候..." -ForegroundColor Yellow
+    if (-not $backendReady) { Write-Warn "后端可能还在启动中，请查看后端窗口" }
+    if (-not $frontendReady) { Write-Warn "前端可能还在启动中，请查看前端窗口" }
+    if ($backendReady -and $frontendReady -and -not $proxyReady) { Write-Warn "前端代理未就绪，请检查 vite.config.ts 配置" }
+}
+Write-Host "==========================================" -ForegroundColor DarkGreen
+Write-Host ""
+Write-Host "  前端地址: http://localhost:$frontendPort" -ForegroundColor Cyan
+Write-Host "  后端地址: http://localhost:$backendPort/guilin-news" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  首次启动可能需要 30-60 秒，请耐心等待" -ForegroundColor Gray
+Write-Host "  关闭对应的 cmd 窗口即可停止服务" -ForegroundColor Gray
+Write-Host ""
+
+# 自动打开浏览器（仅在代理就绪时）
+if ($proxyReady) {
+    Write-Host "  正在打开浏览器..." -ForegroundColor White
+    Start-Process "http://localhost:$frontendPort"
 }
 
-# --- Start frontend ---
-Write-Info "Starting frontend (port 5173)..."
-$frontendBatContent = "@echo off`r`n"
-$frontendBatContent += "chcp 65001 >nul 2>&1`r`n"
-$frontendBatContent += "title Guilin News - Frontend (Vite)`r`n"
-$frontendBatContent += "cd /d `"$frontendPath`"`r`n"
-$frontendBatContent += "call npm run dev`r`n"
-$frontendBatContent += "echo.`r`n"
-$frontendBatContent += "echo ========================================`r`n"
-$frontendBatContent += "echo Frontend has stopped`r`n"
-$frontendBatContent += "echo ========================================`r`n"
-$frontendBatContent += "pause`r`n"
-
-$frontendBat = Join-Path $env:TEMP "guilin_frontend.bat"
-Set-Content -Path $frontendBat -Value $frontendBatContent -Encoding Default -Force
-Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "`"$frontendBat`"" -WindowStyle Normal
-Write-Ok "Frontend starting..."
-
-# ============================================================
-# Done
-# ============================================================
 Write-Host ""
-Write-Host "  ==========================================" -ForegroundColor Cyan
-Write-Host "  All services started successfully!" -ForegroundColor Green
-Write-Host "  ==========================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  Frontend:  http://localhost:5173" -ForegroundColor White
-Write-Host "  Backend:   http://localhost:8080/guilin-news" -ForegroundColor White
-Write-Host ""
-Write-Host "  Tips:" -ForegroundColor Gray
-Write-Host "  - Wait 10-15 seconds for services to fully start" -ForegroundColor Gray
-Write-Host "  - Close both command windows to stop services" -ForegroundColor Gray
+Read-Host "按 Enter 键退出此窗口（服务将继续在后台运行）"

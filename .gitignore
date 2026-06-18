@@ -40,6 +40,3 @@ out/
 # Cache
 .cache/
 *.tmp
-
-# Auto-installed tools (JDK, Maven, Node.js)
-tools/

@@ -20,14 +20,15 @@ const HERO_BG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www
 const CATEGORY_LABELS: Record<string, string> = {
   xxxw: '桂院要闻',
   xsdt: '学术动态',
-  xykx: '校园快讯',
-  gyrw: '桂院人物'
+  gyrw: '桂院人物',
+  mtgy: '媒体关注'
 };
 
 function NewsDetailPage() {
   const [detail, setDetail] = useState<NewsDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isExternal, setIsExternal] = useState(false);
   const [fontSize, setFontSize] = useState(16);
   const [progress, setProgress] = useState(0);
   const [showBackTop, setShowBackTop] = useState(false);
@@ -54,6 +55,12 @@ function NewsDetailPage() {
     const fetchDetail = async () => {
       if (!url) {
         setError('参数错误');
+        setLoading(false);
+        return;
+      }
+      // 外部链接（如微信公众号文章）无法在后端解析，提示用户直接访问
+      if (!url.includes('glc.edu.cn')) {
+        setIsExternal(true);
         setLoading(false);
         return;
       }
@@ -111,6 +118,11 @@ function NewsDetailPage() {
   const nextNews = currentIndex >= 0 && currentIndex < newsList.length - 1 ? newsList[currentIndex + 1] : null;
 
   const openNews = (item: NewsItem) => {
+    // 外部链接（如微信公众号文章）直接在新标签页打开
+    if (item.link && !item.link.includes('glc.edu.cn')) {
+      window.open(item.link, '_blank');
+      return;
+    }
     window.location.href = `/news-detail?url=${encodeURIComponent(item.link)}&title=${encodeURIComponent(item.title)}&date=${encodeURIComponent(item.date || '')}&category=${category}&thumb=${encodeURIComponent(item.thumbnail || '')}`;
   };
 
@@ -199,7 +211,7 @@ function NewsDetailPage() {
             </a>
             <div className="hidden sm:flex items-center gap-2 ml-4 border-l border-gray-200 pl-4">
               <span className="text-xs text-gray-400">快速访问</span>
-              {['xxxw', 'xsdt', 'xykx', 'gyrw'].map(cat => (
+              {['xxxw', 'xsdt', 'gyrw', 'mtgy'].map(cat => (
                 <a key={cat} href={`/?category=${cat}`}
                   className={`px-2.5 py-1 rounded text-xs ${category === cat ? 'bg-[#1E6B56] text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
                   {CATEGORY_LABELS[cat]}
@@ -227,7 +239,6 @@ function NewsDetailPage() {
       {/* Hero 头图 */}
       <div className="relative h-[300px] lg:h-[380px] overflow-hidden bg-gray-900">
         <img src={finalThumb} alt={title} className="w-full h-full object-cover"
-          referrerPolicy="no-referrer"
           onError={(e) => { (e.target as HTMLImageElement).src = HERO_BG; }} />
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent"></div>
         <div className="absolute bottom-0 left-0 right-0 container mx-auto px-6 pb-10 z-10">
@@ -296,6 +307,23 @@ function NewsDetailPage() {
 
           {!loading && detail && (
             <div className="news-content" dangerouslySetInnerHTML={{ __html: detail.content }} />
+          )}
+
+          {!loading && isExternal && (
+            <div className="text-center py-10">
+              <svg className="w-16 h-16 mx-auto text-[#1E6B56] mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              <p className="text-gray-600 mb-2">这是一篇来自微信公众号的外部文章</p>
+              <p className="text-gray-400 text-sm mb-6">{title}</p>
+              <a href={url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-[#1E6B56] text-white rounded-lg hover:bg-[#155545] transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                打开原文阅读
+              </a>
+            </div>
           )}
 
           {!loading && error && (

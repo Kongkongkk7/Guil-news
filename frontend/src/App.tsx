@@ -11,7 +11,7 @@ function App() {
   const [activeCategory, setActiveCategory] = useState<NewsCategory>(() => {
     const params = new URLSearchParams(window.location.search);
     const cat = params.get('category');
-    if (cat && ['xxxw', 'xsdt', 'xykx', 'gyrw'].includes(cat)) {
+    if (cat && ['xxxw', 'xsdt', 'gyrw', 'mtgy'].includes(cat)) {
       return cat as NewsCategory;
     }
     return 'xxxw';
@@ -104,6 +104,11 @@ function App() {
   };
 
   const openNews = (item: NewsItem) => {
+    // 外部链接（如微信公众号文章）直接在新标签页打开，不走详情页解析
+    if (item.link && !item.link.includes('glc.edu.cn')) {
+      window.open(item.link, '_blank');
+      return;
+    }
     const detailUrl = `/news-detail?url=${encodeURIComponent(item.link)}&title=${encodeURIComponent(item.title)}&date=${encodeURIComponent(item.date || '')}&category=${activeCategory}&thumb=${encodeURIComponent(item.thumbnail || '')}`;
     window.open(detailUrl, '_blank');
   };
@@ -119,8 +124,8 @@ function App() {
     const colors: Record<NewsCategory, string> = {
       xxxw: 'from-[#1E6B56] to-[#0D9488]',
       xsdt: 'from-[#7C3AED] to-[#A78BFA]',
-      xykx: 'from-[#2563EB] to-[#60A5FA]',
-      gyrw: 'from-[#EA580C] to-[#FB923C]'
+      gyrw: 'from-[#2563EB] to-[#60A5FA]',
+      mtgy: 'from-[#EA580C] to-[#FB923C]'
     };
     return colors[key] || colors.xxxw;
   };
@@ -322,7 +327,6 @@ function App() {
                 src={item.thumbnail || HERO_BG}
                 alt={item.title}
                 className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"></div>
               <div className="absolute bottom-0 left-0 right-0 container mx-auto px-6 pb-12 z-10">
@@ -432,7 +436,6 @@ function App() {
                     src={item.thumbnail || PLACEHOLDER_SVG}
                     alt={item.title}
                     className="card-img w-full h-full object-cover transition-transform duration-500"
-                    referrerPolicy="no-referrer"
                     onError={(e) => { (e.target as HTMLImageElement).src = PLACEHOLDER_SVG; }}
                   />
                   <div className="card-overlay absolute inset-0 bg-[#1E6B56]/10 opacity-0 transition-opacity duration-300"></div>
