@@ -227,6 +227,7 @@ function NewsDetailPage() {
       {/* Hero 头图 */}
       <div className="relative h-[300px] lg:h-[380px] overflow-hidden bg-gray-900">
         <img src={finalThumb} alt={title} className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
           onError={(e) => { (e.target as HTMLImageElement).src = HERO_BG; }} />
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent"></div>
         <div className="absolute bottom-0 left-0 right-0 container mx-auto px-6 pb-10 z-10">

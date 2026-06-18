@@ -95,8 +95,8 @@ public class NewsService {
         Elements newsItems = doc.select("li, .news-item, .list-item");
 
         for (Element item : newsItems) {
-            // 查找新闻链接：内部链接、微信链接、招生链接
-            Element linkEl = item.selectFirst("a[href*=info/], a[href*=mp.weixin], a[href*=zsgy/]");
+            // 查找新闻链接：内部链接、微信链接
+            Element linkEl = item.selectFirst("a[href*=info/], a[href*=mp.weixin]");
             if (linkEl == null) continue;
 
             String title = linkEl.text().trim();
@@ -158,8 +158,8 @@ public class NewsService {
                     href = "https://www.glc.edu.cn" + href;
                 }
 
-                // 只保留有意义的新闻链接
-                if (href.contains("info/") || href.contains("mp.weixin.qq.com") || href.contains("zsgy/")) {
+                // 只保留有意义的新闻链接（排除分类页面、导航页面等）
+                if (href.contains("info/") || href.contains("mp.weixin.qq.com")) {
                     // 从标题中提取日期
                     String date = extractDateFromTitle(title);
                     String cleanTitle = title.replaceFirst("^\\d{4}年\\d{2}月\\d{2}日\\s*", "").trim();
@@ -221,7 +221,7 @@ public class NewsService {
         return "";
     }
 
-    private String fetchFirstImage(String url) {
+    public String fetchFirstImage(String url) {
         try {
             Document doc = Jsoup.connect(url)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
@@ -276,7 +276,19 @@ public class NewsService {
         // 微信公众号链接：无法直接爬取内容，返回链接引导用户访问
         if (url.contains("mp.weixin.qq.com")) {
             detail.put("title", "微信公众号文章");
-            detail.put("content", "<div style='text-align:center;padding:40px;'><p style='font-size:18px;color:#666;'>本文为微信公众号文章</p><p style='margin:20px 0;'><a href='" + url + "' target='_blank' style='display:inline-block;padding:12px 32px;background:#1E6B56;color:#fff;border-radius:8px;text-decoration:none;font-size:16px;'>点击阅读全文</a></p></div>");
+            detail.put("content", "<div style='text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;'>"
+                + "<div style='width:64px;height:64px;margin:0 auto 24px;background:#07C160;border-radius:16px;"
+                + "display:flex;align-items:center;justify-content:center;'>"
+                + "<svg width='32' height='32' viewBox='0 0 24 24' fill='white'>"
+                + "<path d='M9.5 4C5.36 4 2 6.69 2 10c0 1.89 1.08 3.56 2.78 4.66L4 17l2.83-1.55C7.53 15.65 8.5 16 9.5 16c.17 0 .33 0 .5-.02C9.68 15.4 9.5 14.71 9.5 14c0-3.31 3.36-6 7.5-6 .17 0 .33 0 .5.02C16.93 5.77 13.5 4 9.5 4zM7 8.5c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm5 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1z'/>"
+                + "</svg></div>"
+                + "<h2 style='font-size:20px;color:#1f2937;margin-bottom:12px;font-weight:600;'>微信公众号文章</h2>"
+                + "<p style='color:#6b7280;font-size:15px;margin-bottom:28px;line-height:1.6;'>本文来自微信公众号，由于平台限制，请在微信中查看完整内容</p>"
+                + "<a href='" + url + "' target='_blank' "
+                + "style='display:inline-block;padding:14px 40px;background:#1E6B56;color:#fff;"
+                + "border-radius:10px;text-decoration:none;font-size:16px;font-weight:500;"
+                + "box-shadow:0 4px 12px rgba(30,107,86,0.3);transition:all 0.3s;'>"
+                + "点击阅读全文</a></div>");
             return detail;
         }
 

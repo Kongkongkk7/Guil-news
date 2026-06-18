@@ -154,10 +154,11 @@ public class ApiServlet extends HttpServlet {
                 for (String url : urls) {
                     executor.submit(() -> {
                         try {
-                            Map<String, String> detail = newsService.fetchNewsDetail(url);
-                            String thumbnail = detail.get("thumbnail");
+                            String thumbnail = newsService.fetchFirstImage(url);
                             if (thumbnail != null && !thumbnail.isEmpty()) {
-                                results.put(url, thumbnail);
+                                synchronized (results) {
+                                    results.put(url, thumbnail);
+                                }
                             }
                         } catch (Exception ignored) {
                         }
