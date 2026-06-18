@@ -75,8 +75,24 @@ function Configure-Maven {
   </mirrors>
 </settings>
 "@
-    Set-Content -Path $settingsFile -Value $settingsContent -Encoding UTF8
-    Write-Host "    Configured Aliyun Maven mirror" -ForegroundColor Gray
+    try {
+        Set-Content -Path $settingsFile -Value $settingsContent -Encoding UTF8 -ErrorAction Stop
+        Write-Host "    Configured Aliyun Maven mirror" -ForegroundColor Gray
+    } catch {
+        # settings.xml not writable (e.g., system Maven in Program Files)
+        # Fallback: use user-level settings.xml
+        $userSettings = Join-Path $env:USERPROFILE ".m2\settings.xml"
+        $m2Dir = Join-Path $env:USERPROFILE ".m2"
+        if (-not (Test-Path $m2Dir)) {
+            New-Item -ItemType Directory -Path $m2Dir -Force | Out-Null
+        }
+        try {
+            Set-Content -Path $userSettings -Value $settingsContent -Encoding UTF8 -ErrorAction Stop
+            Write-Host "    Configured Aliyun Maven mirror (user-level: $userSettings)" -ForegroundColor Gray
+        } catch {
+            Write-Host "    Skip Maven mirror config (no write permission)" -ForegroundColor DarkGray
+        }
+    }
 }
 
 # Helper: Configure npm to use China mirror
@@ -105,6 +121,19 @@ if ($sysJava) {
         if ($majorVer -ge 17) {
             $firstLine = ($javaVersion -split "`n")[0] -replace '^.*?:\s*', ''
             Write-Host "  Found system Java: $firstLine" -ForegroundColor Green
+            # Determine JAVA_HOME from java path
+            if (-not $env:JAVA_HOME) {
+                $javaExePath = (Get-Command java).Source
+                # java.exe is in bin/, JAVA_HOME is parent of bin/
+                $binPath = Split-Path $javaExePath -Parent
+                $candidateHome = Split-Path $binPath -Parent
+                if (Test-Path (Join-Path $candidateHome "bin\java.exe")) {
+                    $javaHome = $candidateHome
+                    $env:JAVA_HOME = $javaHome
+                }
+            } else {
+                $javaHome = $env:JAVA_HOME
+            }
             $javaOk = $true
         }
     }
@@ -189,11 +218,79 @@ Write-Host "[2/6] Checking Maven..." -ForegroundColor Yellow
 
 $mavenOk = $false
 $mavenHome = ""
+$mavenBinPath = ""
 
-# Check system Maven
+# Method 1: Get-Command (try mvn, mvn.cmd, mvn.bat)
 $sysMvn = Get-Command mvn -ErrorAction SilentlyContinue
+if (-not $sysMvn) { $sysMvn = Get-Command mvn.cmd -ErrorAction SilentlyContinue }
+if (-not $sysMvn) { $sysMvn = Get-Command mvn.bat -ErrorAction SilentlyContinue }
+
+# Method 2: where.exe (more reliable, matches cmd behavior)
+if (-not $sysMvn) {
+    try {
+        $whereResult = (where.exe mvn 2>$null | Where-Object { $_ })
+        if ($whereResult) {
+            $firstMatch = $whereResult | Select-Object -First 1
+            $sysMvn = [PSCustomObject]@{ Source = $firstMatch }
+        }
+    } catch {}
+}
+
+# Method 3: MAVEN_HOME / M2_HOME environment variable
+if (-not $sysMvn) {
+    $mavenHomeEnv = $env:MAVEN_HOME
+    if (-not $mavenHomeEnv) { $mavenHomeEnv = $env:M2_HOME }
+    if ($mavenHomeEnv) {
+        $candidateMvn = Join-Path $mavenHomeEnv "bin\mvn.cmd"
+        if (Test-Path $candidateMvn) {
+            $sysMvn = [PSCustomObject]@{ Source = $candidateMvn }
+        }
+    }
+}
+
+# Method 4: Common installation paths
+if (-not $sysMvn) {
+    $commonPaths = @(
+        "C:\Program Files\Apache\maven\bin\mvn.cmd",
+        "C:\Program Files\apache-maven*\bin\mvn.cmd",
+        "C:\apache-maven*\bin\mvn.cmd",
+        "C:\maven\bin\mvn.cmd",
+        "D:\maven\bin\mvn.cmd",
+        "D:\apache-maven*\bin\mvn.cmd",
+        "$env:USERPROFILE\apache-maven*\bin\mvn.cmd"
+    )
+    foreach ($p in $commonPaths) {
+        $resolved = Get-Item $p -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($resolved) {
+            $sysMvn = [PSCustomObject]@{ Source = $resolved.FullName }
+            break
+        }
+    }
+}
+
 if ($sysMvn) {
-    Write-Host "  Found system Maven" -ForegroundColor Green
+    # Determine MAVEN_HOME from mvn path (bin -> parent)
+    $mvnSource = $sysMvn.Source
+    $mavenBinPath = Split-Path $mvnSource -Parent
+    $mavenHome = Split-Path $mavenBinPath -Parent
+
+    # Verify by checking version
+    try {
+        $mvnVersion = (& $mvnSource --version 2>&1 | Out-String).Trim()
+        $firstLine = ($mvnVersion -split "`n")[0]
+        Write-Host "  Found Maven: $firstLine" -ForegroundColor Green
+        Write-Host "    Path: $mvnSource" -ForegroundColor DarkGray
+    } catch {
+        Write-Host "  Found Maven at: $mvnSource" -ForegroundColor Green
+    }
+
+    # Ensure Maven bin is in PATH for the current session and child processes
+    if ($env:PATH -notlike "*$mavenBinPath*") {
+        $env:PATH = "$mavenBinPath;$env:PATH"
+    }
+    if (-not $env:MAVEN_HOME) {
+        $env:MAVEN_HOME = $mavenHome
+    }
     $mavenOk = $true
 }
 
@@ -203,7 +300,9 @@ if (-not $mavenOk) {
     if (Test-Path $localMvn) {
         Write-Host "  Found local Maven" -ForegroundColor Green
         $mavenHome = Join-Path $toolsPath "maven"
-        $env:PATH = "$mavenHome\bin;$env:PATH"
+        $mavenBinPath = Join-Path $mavenHome "bin"
+        $env:PATH = "$mavenBinPath;$env:PATH"
+        $env:MAVEN_HOME = $mavenHome
         $mavenOk = $true
     }
 }
@@ -230,7 +329,9 @@ if (-not $mavenOk) {
             Rename-Item -Path $extracted.FullName -NewName "maven" -Force
             Remove-Item $mvnZip -Force
             $mavenHome = Join-Path $toolsPath "maven"
-            $env:PATH = "$mavenHome\bin;$env:PATH"
+            $mavenBinPath = Join-Path $mavenHome "bin"
+            $env:PATH = "$mavenBinPath;$env:PATH"
+            $env:MAVEN_HOME = $mavenHome
             # Configure Aliyun mirror for faster dependency downloads
             Configure-Maven -MavenHome $mavenHome
             Write-Host "  Installed: Maven 3.9.9 (with Aliyun mirror)" -ForegroundColor Green
@@ -397,44 +498,87 @@ Write-Host ""
 Write-Host "[6/6] Starting servers..." -ForegroundColor Yellow
 
 Write-Host "  Starting backend (port 8080)..." -ForegroundColor Gray
-$backendScript = @"
-cd /d "$rootPath"
-set JAVA_HOME=$env:JAVA_HOME
-set PATH=%JAVA_HOME%\bin;%PATH%
-mvn tomcat7:run
-"@
+
+# Build backend script with explicit paths (avoid PATH issues in new cmd window)
+$backendScript = "@echo off`r`n"
+$backendScript += "cd /d `"$rootPath`"`r`n"
+if ($env:JAVA_HOME) {
+    $backendScript += "set JAVA_HOME=$env:JAVA_HOME`r`n"
+    $backendScript += "set PATH=%JAVA_HOME%\bin;%PATH%`r`n"
+}
+if ($mavenBinPath) {
+    $backendScript += "set PATH=$mavenBinPath;%PATH%`r`n"
+}
+if ($env:MAVEN_HOME) {
+    $backendScript += "set MAVEN_HOME=$env:MAVEN_HOME`r`n"
+}
+$backendScript += "echo Starting Maven Tomcat...`r`n"
+$backendScript += "mvn tomcat7:run`r`n"
+$backendScript += "echo.`r`n"
+$backendScript += "echo ========================================`r`n"
+$backendScript += "echo Backend has stopped (check for errors above)`r`n"
+$backendScript += "echo ========================================`r`n"
+$backendScript += "pause`r`n"
+
 $backendBat = Join-Path $env:TEMP "guilin_backend.bat"
 Set-Content -Path $backendBat -Value $backendScript -Encoding Default
-Start-Process -FilePath "cmd.exe" -ArgumentList "/k", $backendBat -WindowStyle Normal
-Write-Host "  Backend starting..." -ForegroundColor Green
+$backendProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", $backendBat -WindowStyle Normal -PassThru
+$backendCmdPid = $backendProcess.Id
+Write-Host "  Backend starting (CMD PID: $backendCmdPid)..." -ForegroundColor Green
 
-# Wait for backend port 8080 to be ready (poll up to 5 minutes for first-time build)
+# Wait for backend port 8080 to be ready
+# Poll up to 5 minutes for first-time build, but detect if backend has crashed
 Write-Host "  Waiting for backend to be ready (first-time build may take several minutes)..." -ForegroundColor Gray
 $backendReady = $false
 $maxWaitSeconds = 300
 $waitedSeconds = 0
+$lastProgressSeconds = 0
+$noJavaCount = 0
+
 while ($waitedSeconds -lt $maxWaitSeconds) {
     Start-Sleep -Seconds 3
     $waitedSeconds += 3
+
+    # Check if port 8080 is listening
     $conn = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
     if ($conn) {
-        # Verify it's a real process (not PID 0)
         $realProc = $conn.OwningProcess | Where-Object { $_ -ne 0 } | Select-Object -First 1
         if ($realProc) {
             $backendReady = $true
             break
         }
     }
+
+    # Check if any Java process is running (compiling or running)
+    $javaProcs = Get-Process -Name java -ErrorAction SilentlyContinue
+    if ($javaProcs) {
+        $noJavaCount = 0
+    } else {
+        $noJavaCount++
+        # If no Java process for 15 seconds (5 checks), backend likely crashed
+        if ($noJavaCount -ge 5 -and $waitedSeconds -gt 15) {
+            Write-Host "  No Java process detected for 15s, backend may have failed to start" -ForegroundColor Red
+            Write-Host "  Please check the backend command window for errors" -ForegroundColor Red
+            break
+        }
+    }
+
     # Show progress every 15 seconds
-    if ($waitedSeconds % 15 -eq 0) {
-        Write-Host "  Still waiting... ($waitedSeconds s elapsed)" -ForegroundColor DarkGray
+    if ($waitedSeconds - $lastProgressSeconds -ge 15) {
+        $lastProgressSeconds = $waitedSeconds
+        if ($javaProcs) {
+            Write-Host "  Still building/starting... ($waitedSeconds s, Java process running)" -ForegroundColor DarkGray
+        } else {
+            Write-Host "  Still waiting... ($waitedSeconds s)" -ForegroundColor DarkGray
+        }
     }
 }
 
 if ($backendReady) {
     Write-Host "  Backend ready! (took $waitedSeconds s)" -ForegroundColor Green
 } else {
-    Write-Host "  Backend not ready after $maxWaitSeconds s, starting frontend anyway..." -ForegroundColor DarkYellow
+    Write-Host "  Backend not ready, starting frontend anyway..." -ForegroundColor DarkYellow
+    Write-Host "  (If backend has errors, check the backend command window)" -ForegroundColor DarkYellow
 }
 
 Write-Host "  Starting frontend (port 5173)..." -ForegroundColor Gray
